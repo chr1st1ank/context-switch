@@ -3,12 +3,10 @@ name = "cosw"
 version = "0.1.0"
 description = "context-switch CLI client for time tracking"
 requires-python = ">=3.14"
-dependencies = [
-    "click>=8.1.0",
-    "pydantic>=2.0.0",
-]
+dependencies = ["click>=8.1.0", "contextswitch-core", "pydantic>=2.0.0"]
 
 [tool.uv.sources]
+contextswitch-core = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

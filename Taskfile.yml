@@ -26,6 +26,8 @@ tasks:
   test:
     desc: Run all test suites
     cmds:
+      - task: core:develop
+      - task: core:test
       - uv run pytest
 
   check:

@@ -31,9 +31,9 @@ context-switch/
 │   └── contextswitch-core/       # Shared domain model and storage interface (Rust)
 │       ├── src/
 │       │   ├── lib.rs            # PyO3 module entry point
-│       │   ├── domain.rs         # Span, Project, Tag types
-│       │   ├── storage.rs        # StorageProvider interface
-│       │   └── bin/main.rs       # Demo binary
+│       │   ├── domain.rs         # Span, Project, Tag, Document types
+│       │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
+│       │   └── conformance.rs    # Provider conformance test suite
 │       ├── python/               # Python type stubs
 │       ├── Cargo.toml            # Rust dependencies
 │       ├── pyproject.toml        # Python build config (maturin)
@@ -129,7 +129,7 @@ The compiled extension is used by Python components via `import contextswitch_co
 ### Rust
 
 - Standard Cargo layout with `src/` directory
-- Modules: `domain.rs`, `storage.rs`, `lib.rs`
+- Modules: `domain.rs`, `storage.rs`, `conformance.rs`, `lib.rs`
 - PyO3 wrappers for Python types (e.g., `PySpan`, `PyProject`, `PyTag`)
 - Error handling with custom `StorageError` enum
 - Comprehensive documentation comments
@@ -164,9 +164,14 @@ The `StorageProvider` trait is defined in Rust (`libs/contextswitch-core/src/sto
 ```rust
 pub trait StorageProvider: Send + Sync {
     fn read(&self) -> Result<StorageSnapshot, StorageError>;
-    fn commit(&self, snapshot: StorageSnapshot, expected_version: &str) -> Result<bool, StorageError>;
+    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError>;
 }
 ```
+
+`commit` returns the new version on success and fails with
+`StorageError::Conflict` on a stale `expected_version`. Every provider must
+pass the conformance suite in `libs/contextswitch-core/src/conformance.rs`.
+See ADR-0004 for the document schema and the local commit protocol.
 
 Implementations:
 

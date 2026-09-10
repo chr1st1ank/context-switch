@@ -56,6 +56,13 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Python bindings
+        run: uv run maturin develop
+        working-directory: libs/contextswitch-core
+
       - name: Run tests
         run: uv run pytest --cov --cov-report=xml
 
@@ -64,6 +71,28 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: libs/contextswitch-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --all-features
 
   codeql:
     runs-on: ubuntu-latest

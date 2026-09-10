@@ -12,3 +12,4 @@ dependencies = []
 [tool.maturin]
 python-source = "python"
 module-name = "contextswitch_core"
+features = ["pyo3/extension-module"]
