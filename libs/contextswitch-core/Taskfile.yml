@@ -1,0 +1,37 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build the Rust library with Python bindings
+    cmds:
+      - cargo build --release
+
+  lint:
+    desc: Lint Rust code
+    cmds:
+      - cargo clippy --all-targets --all-features -- -D warnings
+
+  fmt:
+    desc: Format Rust code
+    cmds:
+      - cargo fmt
+
+  fmt-check:
+    desc: Check Rust code formatting
+    cmds:
+      - cargo fmt -- --check
+
+  test:
+    desc: Run Rust tests
+    cmds:
+      - cargo test --all-features
+
+  doc:
+    desc: Build Rust documentation
+    cmds:
+      - cargo doc --no-deps --open
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cargo clean

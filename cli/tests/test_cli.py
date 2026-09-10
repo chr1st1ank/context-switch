@@ -1,7 +1,6 @@
 """Tests for the CLI entry point."""
 
 from click.testing import CliRunner
-
 from cosw.cli import main
 
 

@@ -9,9 +9,9 @@ This is a multi-component time-tracking system with synchronized storage across 
 - **cosw**: Command-line client for laptops (Python/Click)
 - **Android**: Native Android application
 - **Dashboard**: Reporting and visualization (future)
-- **contextswitch-core**: Shared domain model and storage provider interface
+- **contextswitch-core**: Shared domain model and storage provider interface (Rust with Python bindings)
 
-The system is designed around a storage provider abstraction that supports both local filesystem and remote object storage, with conditional writes to prevent conflicts.
+The system is designed around a storage provider abstraction that supports both local filesystem and remote object storage, with conditional writes to prevent conflicts. The core library is implemented in Rust for performance and safety, with Python bindings via PyO3 for use by the CLI and other Python components.
 
 See `CONTEXT.md` for the domain language and `docs/architecture.md` for the full system design.
 
@@ -28,10 +28,15 @@ context-switch/
 │   ├── README.md
 │   └── Taskfile.yml
 ├── libs/
-│   └── contextswitch-core/       # Shared domain model and storage interface
-│       ├── contextswitch_core/
-│       ├── tests/
-│       ├── pyproject.toml
+│   └── contextswitch-core/       # Shared domain model and storage interface (Rust)
+│       ├── src/
+│       │   ├── lib.rs            # PyO3 module entry point
+│       │   ├── domain.rs         # Span, Project, Tag types
+│       │   ├── storage.rs        # StorageProvider interface
+│       │   └── bin/main.rs       # Demo binary
+│       ├── python/               # Python type stubs
+│       ├── Cargo.toml            # Rust dependencies
+│       ├── pyproject.toml        # Python build config (maturin)
 │       └── Taskfile.yml
 ├── docs/
 │   ├── architecture.md           # System design
@@ -89,6 +94,28 @@ uv sync              # install all dependencies
 uv sync --package cli  # install only CLI dependencies
 ```
 
+## Rust environment
+
+The `contextswitch-core` library is implemented in Rust:
+
+- **Rust version**: Stable (pinned in `rust-toolchain.toml`)
+- **Build system**: Cargo with maturin for Python bindings
+- **Python bindings**: PyO3 for seamless Python interop
+- **Serialization**: Serde for JSON and other formats
+- **Type safety**: Leverages Rust's type system for correctness
+
+Build and test:
+
+```bash
+cd libs/contextswitch-core
+task build      # build the Rust library
+task lint       # check with clippy
+task test       # run Rust tests
+task fmt        # format code
+```
+
+The compiled extension is used by Python components via `import contextswitch_core`.
+
 ## Code style and patterns
 
 ### Python
@@ -99,23 +126,47 @@ uv sync --package cli  # install only CLI dependencies
 - Tests co-located in `tests/` at the component root
 - Type hints required; `ty` enforces them
 
+### Rust
+
+- Standard Cargo layout with `src/` directory
+- Modules: `domain.rs`, `storage.rs`, `lib.rs`
+- PyO3 wrappers for Python types (e.g., `PySpan`, `PyProject`, `PyTag`)
+- Error handling with custom `StorageError` enum
+- Comprehensive documentation comments
+
 ### Domain model
 
-The core domain types are in `contextswitch_core.domain`:
+The core domain types are implemented in Rust (`libs/contextswitch-core/src/domain.rs`) and exposed to Python via PyO3:
 
 - **Span**: A mutable record of time with start, optional stop, optional project, and tags
+  - Rust: `struct Span` with `is_active()` method
+  - Python: `PySpan` class with properties and methods
 - **Project**: A named work context with stable identity
+  - Rust: `struct Project`
+  - Python: `PyProject` class
 - **Tag**: A reusable label for spans
+  - Rust: `struct Tag`
+  - Python: `PyTag` class
 - **Active timer**: The one span with `stopped_at = null`; enforced by storage transaction
+
+All types use:
+
+- UUID identifiers (stable across versions)
+- ISO 8601 timestamps (UTC)
+- Serde for JSON serialization
 
 See `CONTEXT.md` for the full domain language.
 
 ### Storage provider interface
 
-All clients use the `StorageProvider` interface from `contextswitch_core.storage`:
+The `StorageProvider` trait is defined in Rust (`libs/contextswitch-core/src/storage.rs`):
 
-- `read()`: Get current canonical data and version
-- `commit(snapshot, expected_version)`: Conditionally write against observed version
+```rust
+pub trait StorageProvider: Send + Sync {
+    fn read(&self) -> Result<StorageSnapshot, StorageError>;
+    fn commit(&self, snapshot: StorageSnapshot, expected_version: &str) -> Result<bool, StorageError>;
+}
+```
 
 Implementations:
 

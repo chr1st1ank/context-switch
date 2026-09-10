@@ -9,7 +9,7 @@ dependencies = []
 members = ["cli", "libs/*"]
 
 [dependency-groups]
-dev = ["pre-commit", "ruff", "ty", "pytest", "pytest-cov"]
+dev = ["pre-commit", "ruff", "ty", "pytest", "pytest-cov", "maturin>=1.0,<2.0"]
 
 [tool.ruff]
 line-length = 100

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "contextswitch-core"
+version = "0.1.0"
+description = "Shared domain model and storage provider interface for context-switch (Rust with Python bindings)"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.maturin]
+python-source = "python"
+module-name = "contextswitch_core"

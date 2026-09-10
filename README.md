@@ -17,10 +17,10 @@ A single-user, multi-device time tracking system with synchronized storage.
 
 ### Components
 
-- **cosw**: Command-line client for laptops
+- **cosw**: Command-line client for laptops (Python/Click)
 - **Android**: Native Android application
 - **Dashboard**: Reporting and visualization (planned)
-- **contextswitch-core**: Shared domain model and storage provider interface
+- **contextswitch-core**: Shared domain model and storage provider interface (Rust with Python bindings)
 
 ## Quick start
 
@@ -52,7 +52,7 @@ task test     # just tests
 
 The system is built around a **storage provider abstraction** that supports both local filesystem and remote object storage:
 
-```
+```text
 cosw ──────────┐
 Android ───────┼── client domain/sync/report core
 Dashboard ────┘
@@ -93,6 +93,7 @@ See `CONTEXT.md` for the complete domain language.
 ### Prerequisites
 
 - Python 3.14+
+- Rust (stable, installed via `rustup`)
 - `uv` (installed via `mise`)
 - `task` (installed via `mise`)
 
@@ -108,7 +109,7 @@ task changelog      # preview unreleased notes
 
 ### Project structure
 
-```
+```text
 context-switch/
 ├── cli/                    # cosw CLI client
 ├── android/                # Android client
@@ -125,7 +126,8 @@ context-switch/
 ### Code style
 
 - **Python**: Python 3.14, `ruff` for lint/format, `ty` for type-checking
-- **Testing**: `pytest` with 95% coverage gate for libraries
+- **Rust**: Stable, `cargo fmt` for formatting, `cargo clippy` for linting
+- **Testing**: `pytest` for Python, `cargo test` for Rust; 95% coverage gate for libraries
 - **Commits**: Conventional Commits for semantic versioning
 
 ## Offline behavior
