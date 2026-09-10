@@ -1,0 +1,17 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build Android app
+    cmds:
+      - echo "Android build not yet configured"
+
+  test:
+    desc: Run Android tests
+    cmds:
+      - echo "Android tests not yet configured"
+
+  lint:
+    desc: Lint Android code
+    cmds:
+      - echo "Android linting not yet configured"

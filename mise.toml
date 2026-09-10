@@ -1,0 +1,5 @@
+[tools]
+python = "3.14"
+uv = "latest"
+task = "latest"
+git-cliff = "latest"

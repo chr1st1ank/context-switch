@@ -1,0 +1,56 @@
+version: "3"
+
+includes:
+  cli:
+    taskfile: ./cli/Taskfile.yml
+    dir: ./cli
+  core:
+    taskfile: ./libs/contextswitch-core/Taskfile.yml
+    dir: ./libs/contextswitch-core
+  android:
+    taskfile: ./android/Taskfile.yml
+    dir: ./android
+
+tasks:
+  lint:
+    desc: Lint and format everything
+    cmds:
+      - uv run ruff check --fix .
+      - uv run ruff format .
+
+  typecheck:
+    desc: Type-check everything
+    cmds:
+      - uv run ty check
+
+  test:
+    desc: Run all test suites
+    cmds:
+      - uv run pytest
+
+  check:
+    desc: Everything that CI checks
+    cmds:
+      - task: lint
+      - task: typecheck
+      - task: test
+
+  docs:
+    desc: Build documentation
+    cmds:
+      - echo "Documentation building not yet configured"
+
+  docs-serve:
+    desc: Serve documentation locally
+    cmds:
+      - echo "Documentation serving not yet configured"
+
+  changelog:
+    desc: Preview unreleased changelog
+    cmds:
+      - git-cliff --unreleased
+
+  draft-release:
+    desc: Draft a new release
+    cmds:
+      - echo "Release workflow not yet configured"

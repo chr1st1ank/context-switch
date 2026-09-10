@@ -1,0 +1,33 @@
+version: "3"
+
+tasks:
+  dev:
+    desc: Run the CLI in development mode
+    cmds:
+      - uv run --package cosw cosw --help
+
+  lint:
+    desc: Lint and format CLI code
+    cmds:
+      - uv run ruff check --fix cosw tests
+      - uv run ruff format cosw tests
+
+  typecheck:
+    desc: Type-check CLI code
+    cmds:
+      - uv run ty check cosw tests
+
+  test:
+    desc: Run CLI tests
+    cmds:
+      - uv run --package cosw pytest tests
+
+  test-cov:
+    desc: Run tests with coverage report
+    cmds:
+      - uv run --package cosw pytest tests --cov=cosw --cov-report=html
+
+  build:
+    desc: Build CLI distribution
+    cmds:
+      - uv build
