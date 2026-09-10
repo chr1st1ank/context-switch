@@ -2,6 +2,7 @@
 name = "context-switch"
 version = "0.0.0"
 description = "Multi-device time tracking with synchronized storage"
+license = "Apache-2.0"
 requires-python = ">=3.14"
 dependencies = ["cosw", "contextswitch-core"]
 

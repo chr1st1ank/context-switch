@@ -159,7 +159,7 @@ The initial design does not provide interactive merge resolution. Conflicted off
 
 ## License
 
-This project is currently private. Licensing will be determined at publication time.
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) for details.
 
 ## Documentation
 
