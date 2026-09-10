@@ -85,6 +85,16 @@ name = "contextswitch-core"
 version = "0.1.0"
 source = { editable = "libs/contextswitch-core" }
 
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.0,<2.0" }]
+
 [[package]]
 name = "cosw"
 version = "0.1.0"
