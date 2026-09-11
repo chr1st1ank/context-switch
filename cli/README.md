@@ -39,6 +39,26 @@ Timestamps accept ISO 8601 or `HH:MM` (today, local time).
 Canonical data lives at `$XDG_DATA_HOME/context-switch/data.json` by default.
 Override with `COSW_DATA_FILE` or `cosw --data-file PATH ...`.
 
+## Configuration
+
+An optional TOML config file lives at
+`$XDG_CONFIG_HOME/context-switch/config.toml` (override with `COSW_CONFIG`
+or `cosw --config PATH`). Run `cosw config` to open it in `$EDITOR` — a
+commented skeleton is created on first use — or `cosw config --path` to
+print the resolved path.
+
+```toml
+[storage]
+provider = "local"                          # only "local" for now
+data_file = "~/canonical/data.json"         # ~ and $VARS expanded;
+                                            # relative resolves vs this dir
+```
+
+Precedence: `--data-file` flag > `COSW_DATA_FILE` env > `storage.data_file`
+> default. `cosw status -v` shows which source won and which config file
+was read. Config holds non-secret settings only — provider credentials
+belong to environment variables or the platform credential facility.
+
 ## Development
 
 ```bash

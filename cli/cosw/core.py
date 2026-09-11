@@ -20,6 +20,7 @@ from contextswitch_core import (
     Tag,
 )
 
+from cosw.config import Config
 from cosw.timeparse import parse_datetime
 
 ENV_DATA_FILE = "COSW_DATA_FILE"
@@ -44,7 +45,13 @@ def open_provider(path: Path) -> LocalFsProvider:
 
 
 def get_provider(ctx: click.Context) -> LocalFsProvider:
-    provider = ctx.obj["provider"]
+    """The storage provider, opened lazily so that commands which never
+    touch canonical data (``config``, ``--help``) don't require a usable
+    data file."""
+    provider = ctx.obj.get("provider")
+    if provider is None:
+        provider = open_provider(ctx.obj["data_file"])
+        ctx.obj["provider"] = provider
     assert isinstance(provider, LocalFsProvider)
     return provider
 
@@ -67,6 +74,13 @@ def storage_info(ctx: click.Context) -> dict[str, str]:
         "url": Path(ctx.obj["data_file"]).expanduser().resolve().as_uri(),
         "source": str(ctx.obj["data_file_origin"]),
     }
+
+
+def config_info(ctx: click.Context) -> dict[str, Any]:
+    """Resolved config file location for ``status --verbose``."""
+    config = ctx.obj["config"]
+    assert isinstance(config, Config)
+    return {"path": str(config.path), "exists": config.path.exists()}
 
 
 def transact(

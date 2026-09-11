@@ -8,6 +8,13 @@ from click.testing import CliRunner, Result
 from cosw.cli import main
 
 
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep a real user config file from leaking into tests."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+    monkeypatch.delenv("COSW_CONFIG", raising=False)
+
+
 @pytest.fixture
 def data_file(tmp_path: Path) -> Path:
     """An isolated canonical data file per test."""

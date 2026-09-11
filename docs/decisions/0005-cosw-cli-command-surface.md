@@ -87,8 +87,8 @@ cosw [--data-file PATH] COMMAND ...
 
 ### Deferred
 
-- Config file and `cosw config` (arrive with the remote provider's
-  credentials/settings), offline action queue, colors, `$EDITOR`-based edit,
+- Config file and `cosw config` — landed in ADR-0006 —
+  offline action queue, colors, `$EDITOR`-based edit,
   and `cosw resume` refusing to run while a timer is active is already
   enforced — a future `resume --switch` escape hatch is possible but not
   planned.

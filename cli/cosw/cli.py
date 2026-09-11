@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -10,12 +11,19 @@ import click
 from click.core import ParameterSource
 from contextswitch_core import Document
 
+from cosw.config import (
+    CONFIG_SKELETON,
+    ENV_CONFIG,
+    Config,
+    default_config_file,
+    load_config,
+)
 from cosw.core import (
     ENV_DATA_FILE,
+    config_info,
     default_data_file,
     describe,
     echo_created,
-    open_provider,
     parse_classification,
     parse_dt,
     read_document,
@@ -37,21 +45,40 @@ from cosw.timeparse import fmt_duration, fmt_time, utcnow
     envvar=ENV_DATA_FILE,
     help="Path to the canonical data file.",
 )
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    envvar=ENV_CONFIG,
+    help="Path to the config file.",
+)
 @click.version_option()
 @click.pass_context
-def main(ctx: click.Context, data_file: Path | None) -> None:
+def main(ctx: click.Context, data_file: Path | None, config_file: Path | None) -> None:
     """context-switch time tracking CLI."""
     ctx.ensure_object(dict)
-    if data_file is None:
-        path = default_data_file()
-        origin = "default"
-    else:
+    config_path = config_file if config_file is not None else default_config_file()
+    try:
+        config = load_config(config_path, explicit=config_file is not None)
+    except click.ClickException:
+        # The config command must stay usable against a missing or broken
+        # file: it is the tool that creates and fixes it.
+        if ctx.invoked_subcommand != "config":
+            raise
+        config = Config(path=config_path)
+    ctx.obj["config"] = config
+    if data_file is not None:
         path = data_file
         source = ctx.get_parameter_source("data_file")
         origin = "--data-file" if source == ParameterSource.COMMANDLINE else ENV_DATA_FILE
+    elif config.data_file is not None:
+        path = config.data_file
+        origin = "config file"
+    else:
+        path = default_data_file()
+        origin = "default"
     ctx.obj["data_file"] = path
     ctx.obj["data_file_origin"] = origin
-    ctx.obj["provider"] = open_provider(path)
 
 
 def _resolve_all(
@@ -211,11 +238,15 @@ def status(ctx: click.Context, as_json: bool, verbose: bool) -> None:
         )
         if verbose:
             payload["storage"] = storage_info(ctx)
+            payload["config"] = config_info(ctx)
         click.echo(json.dumps(payload))
         return
     if verbose:
         info = storage_info(ctx)
+        cfg = config_info(ctx)
         click.echo(f"storage: {info['url']} (via {info['source']})")
+        suffix = "" if cfg["exists"] else " (missing)"
+        click.echo(f"config: {cfg['path']}{suffix}")
         click.echo()
     if active is None:
         click.echo("No active timer.")
@@ -225,6 +256,29 @@ def status(ctx: click.Context, as_json: bool, verbose: bool) -> None:
             f"{describe(doc, active)} — started {fmt_time(active.started_at)}, "
             f"elapsed {fmt_duration(elapsed)}"
         )
+
+
+@main.group(invoke_without_command=True)
+@click.option(
+    "--path", "show_path", is_flag=True, help="Print the resolved config file path and exit."
+)
+@click.pass_context
+def config(ctx: click.Context, show_path: bool) -> None:
+    """Open the config file in $EDITOR, creating it on first use."""
+    if ctx.invoked_subcommand is not None:
+        return
+    cfg = ctx.obj["config"]
+    assert isinstance(cfg, Config)
+    path = cfg.path
+    if show_path:
+        click.echo(path)
+        return
+    if not (os.environ.get("VISUAL") or os.environ.get("EDITOR")):
+        raise click.ClickException(f"neither $VISUAL nor $EDITOR is set; edit {path} manually")
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(CONFIG_SKELETON)
+    click.edit(filename=str(path))
 
 
 # Command modules register themselves on ``main`` when imported.
