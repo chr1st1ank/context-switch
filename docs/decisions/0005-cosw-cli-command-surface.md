@@ -49,7 +49,7 @@ cosw [--data-file PATH] COMMAND ...
 ├── cancel [-f]                      # discard the active timer
 ├── status [-j]
 ├── add PROJECT [+TAG ...] --from WHEN --to WHEN
-├── edit [SPAN] [+TAG | -TAG ...] [--start W] [--stop W] [--project N | --unassign]
+├── edit [SPAN] [+TAG ...] [--start W] [--stop W] [--project N | --unassign] [--untag T]
 ├── remove SPAN [-f]
 ├── log    [filters] [-r] [-c|-C] [-j]
 ├── report [filters] [--by project|tag|day] [-c|-C] [-j]

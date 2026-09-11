@@ -103,7 +103,7 @@ def test_edit_tags(invoke) -> None:
     assert result.exit_code == 0
     assert "created tag focus" in result.output
     assert "+focus" in result.output and "+module" in result.output
-    result = invoke("edit", "-2", "-module")
+    result = invoke("edit", "-2", "--untag", "module")
     assert result.exit_code == 0
     assert "+module" not in result.output
 
@@ -111,14 +111,14 @@ def test_edit_tags(invoke) -> None:
 def test_edit_remove_absent_tag_errors(invoke) -> None:
     _seed(invoke)
     invoke("tags", "add", "unused")
-    result = invoke("edit", "-1", "-unused")
+    result = invoke("edit", "-1", "--untag", "unused")
     assert result.exit_code == 1
     assert "no tag" in result.output
 
 
 def test_edit_remove_unknown_tag_errors(invoke) -> None:
     _seed(invoke)
-    result = invoke("edit", "-1", "-nosuch")
+    result = invoke("edit", "-1", "--untag", "nosuch")
     assert result.exit_code == 1
     assert "unknown tag" in result.output
 

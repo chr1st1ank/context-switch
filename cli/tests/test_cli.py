@@ -31,6 +31,30 @@ def test_main_help(invoke) -> None:
         assert command in result.output
 
 
+def test_short_help_everywhere(invoke) -> None:
+    for args in (
+        ["-h"],
+        ["start", "-h"],
+        ["stop", "-h"],
+        ["switch", "-h"],
+        ["resume", "-h"],
+        ["cancel", "-h"],
+        ["status", "-h"],
+        ["add", "-h"],
+        ["edit", "-h"],
+        ["remove", "-h"],
+        ["log", "-h"],
+        ["report", "-h"],
+        ["projects", "-h"],
+        ["projects", "add", "-h"],
+        ["tags", "-h"],
+        ["tags", "rename", "-h"],
+    ):
+        result = invoke(*args)
+        assert result.exit_code == 0, args
+        assert "Usage" in result.output
+
+
 def test_version(invoke) -> None:
     result = invoke("--version")
     assert result.exit_code == 0

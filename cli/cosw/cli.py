@@ -27,7 +27,7 @@ from cosw.core import (
 from cosw.timeparse import fmt_duration, fmt_time, utcnow
 
 
-@click.group()
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
     "--data-file",
     type=click.Path(dir_okay=False, path_type=Path),

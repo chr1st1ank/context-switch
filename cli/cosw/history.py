@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -28,8 +27,6 @@ from cosw.core import (
 )
 from cosw.reporting import Filters, matching_spans, totals_by, totals_by_day
 from cosw.timeparse import fmt_duration, fmt_local, fmt_time, parse_range_end, utcnow
-
-_SPAN_INDEX_RE = re.compile(r"-\d+")
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -73,33 +70,29 @@ def add(ctx: click.Context, args: tuple[str, ...], from_str: str, to_str: str) -
     )
 
 
-def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str], list[str]]:
-    """Split edit positionals into span ref, +tag additions, -tag removals."""
+def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
+    """Split edit positionals into a span ref and +tag additions."""
     ref = None
     adds: list[str] = []
-    removes: list[str] = []
     for arg in args:
         if arg.startswith("+"):
             if len(arg) == 1:
                 raise click.UsageError("'+' needs a tag name")
             adds.append(arg[1:])
-        elif arg.startswith("-") and not _SPAN_INDEX_RE.fullmatch(arg):
-            if len(arg) == 1:
-                raise click.UsageError("'-' needs a tag name")
-            removes.append(arg[1:])
         elif ref is None:
             ref = arg
         else:
             raise click.UsageError(f"unexpected argument {arg!r}")
-    return ref, adds, removes
+    return ref, adds
 
 
 @main.command(context_settings={"ignore_unknown_options": True})
-@click.argument("args", nargs=-1, metavar="[SPAN] [+TAG | -TAG ...]")
+@click.argument("args", nargs=-1, metavar="[SPAN] [+TAG ...]")
 @click.option("--start", "start_str", metavar="WHEN", help="New start time.")
 @click.option("--stop", "stop_str", metavar="WHEN", help="New stop time (stopped spans only).")
 @click.option("--project", "project_name", metavar="NAME", help="Assign to a project.")
 @click.option("--unassign", is_flag=True, help="Clear the span's project.")
+@click.option("--untag", "untags", multiple=True, metavar="TAG", help="Remove a tag.")
 @click.pass_context
 def edit(
     ctx: click.Context,
@@ -108,16 +101,17 @@ def edit(
     stop_str: str | None,
     project_name: str | None,
     unassign: bool,
+    untags: tuple[str, ...],
 ) -> None:
     """Edit a span's times, project, or tags.
 
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
     active span, or the most recent span when idle.
     """
-    ref, adds, removes = _parse_edit_args(args)
+    ref, adds = _parse_edit_args(args)
     if project_name is not None and unassign:
         raise click.UsageError("--project and --unassign are mutually exclusive")
-    if not any([start_str, stop_str, project_name, unassign, adds, removes]):
+    if not any([start_str, stop_str, project_name, unassign, adds, untags]):
         raise click.UsageError("nothing to change")
     started = parse_dt(start_str) if start_str else None
     stopped = parse_dt(stop_str) if stop_str else None
@@ -132,13 +126,13 @@ def edit(
         if project_name is not None:
             project_id = resolve_project_id(doc, project_name, now, created)
         tag_ids = None
-        if adds or removes:
+        if adds or untags:
             current = list(span.tag_ids)
             for name in adds:
                 tag_id = resolve_tag_ids(doc, [name], now, created)[0]
                 if tag_id not in current:
                     current.append(tag_id)
-            for name in removes:
+            for name in untags:
                 tag = require_tag(doc, name)
                 if tag.id not in current:
                     raise click.ClickException(f"span has no tag {name!r}")
