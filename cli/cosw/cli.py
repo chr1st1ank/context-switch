@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import click
+from click.core import ParameterSource
 from contextswitch_core import Document
 
 from cosw.core import (
@@ -22,6 +24,7 @@ from cosw.core import (
     resolve_tag_ids,
     sorted_spans,
     span_to_json,
+    storage_info,
     transact,
 )
 from cosw.timeparse import fmt_duration, fmt_time, utcnow
@@ -39,7 +42,16 @@ from cosw.timeparse import fmt_duration, fmt_time, utcnow
 def main(ctx: click.Context, data_file: Path | None) -> None:
     """context-switch time tracking CLI."""
     ctx.ensure_object(dict)
-    ctx.obj["provider"] = open_provider(data_file or default_data_file())
+    if data_file is None:
+        path = default_data_file()
+        origin = "default"
+    else:
+        path = data_file
+        source = ctx.get_parameter_source("data_file")
+        origin = "--data-file" if source == ParameterSource.COMMANDLINE else ENV_DATA_FILE
+    ctx.obj["data_file"] = path
+    ctx.obj["data_file_origin"] = origin
+    ctx.obj["provider"] = open_provider(path)
 
 
 def _resolve_all(
@@ -186,24 +198,33 @@ def cancel(ctx: click.Context, force: bool) -> None:
 
 @main.command()
 @click.option("-j", "--json", "as_json", is_flag=True, help="Machine-readable output.")
+@click.option("-v", "--verbose", is_flag=True, help="Also show storage configuration.")
 @click.pass_context
-def status(ctx: click.Context, as_json: bool) -> None:
+def status(ctx: click.Context, as_json: bool, verbose: bool) -> None:
     """Show the active timer and elapsed time."""
     doc = read_document(ctx)
     active = doc.active_span()
     now = utcnow()
     if as_json:
-        payload = span_to_json(doc, active, now) if active is not None else {"active": False}
+        payload: dict[str, Any] = (
+            span_to_json(doc, active, now) if active is not None else {"active": False}
+        )
+        if verbose:
+            payload["storage"] = storage_info(ctx)
         click.echo(json.dumps(payload))
         return
+    if verbose:
+        info = storage_info(ctx)
+        click.echo(f"storage: {info['url']} (via {info['source']})")
+        click.echo()
     if active is None:
         click.echo("No active timer.")
-        return
-    elapsed = (now - active.started_at).total_seconds()
-    click.echo(
-        f"{describe(doc, active)} — started {fmt_time(active.started_at)}, "
-        f"elapsed {fmt_duration(elapsed)}"
-    )
+    else:
+        elapsed = (now - active.started_at).total_seconds()
+        click.echo(
+            f"{describe(doc, active)} — started {fmt_time(active.started_at)}, "
+            f"elapsed {fmt_duration(elapsed)}"
+        )
 
 
 # Command modules register themselves on ``main`` when imported.

@@ -83,11 +83,6 @@ def test_data_file_env_var(tmp_path) -> None:
     assert target.exists()
 
 
-def test_default_data_file_env(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("COSW_DATA_FILE", str(tmp_path / "from-env.json"))
-    assert default_data_file() == tmp_path / "from-env.json"
-
-
 def test_default_data_file_xdg(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("COSW_DATA_FILE", raising=False)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
@@ -105,6 +100,48 @@ def test_status_json_inactive(invoke) -> None:
     result = invoke("status", "--json")
     assert result.exit_code == 0
     assert json.loads(result.output) == {"active": False}
+
+
+def test_status_verbose_shows_env_source(invoke, data_file) -> None:
+    result = invoke("status", "-v")
+    assert result.exit_code == 0
+    url = data_file.resolve().as_uri()
+    assert f"storage: {url} (via COSW_DATA_FILE)" in result.output
+    assert "No active timer" in result.output
+    # storage line comes first, separated from the status by a blank line
+    assert result.output.index("storage:") < result.output.index("No active timer")
+
+
+def test_status_verbose_flag_source(tmp_path) -> None:
+    runner = CliRunner()
+    target = tmp_path / "flagged.json"
+    result = runner.invoke(
+        main, ["--data-file", str(target), "status", "-v"], env={"COSW_DATA_FILE": None}
+    )
+    assert result.exit_code == 0
+    assert f"storage: {target.resolve().as_uri()} (via --data-file)" in result.output
+
+
+def test_status_verbose_default_source(tmp_path) -> None:
+    runner = CliRunner()
+    xdg = tmp_path / "xdg"
+    result = runner.invoke(
+        main,
+        ["status", "-v"],
+        env={"COSW_DATA_FILE": None, "XDG_DATA_HOME": str(xdg)},
+    )
+    assert result.exit_code == 0
+    assert "(via default)" in result.output
+    assert (xdg / "context-switch" / "data.json").resolve().as_uri() in result.output
+
+
+def test_status_verbose_json(invoke, data_file) -> None:
+    result = invoke("status", "-v", "--json")
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["active"] is False
+    assert payload["storage"]["url"] == data_file.resolve().as_uri()
+    assert payload["storage"]["source"] == "COSW_DATA_FILE"
 
 
 def test_corrupt_data_file(invoke, data_file) -> None:

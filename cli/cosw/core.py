@@ -30,9 +30,7 @@ _INDEX_RE = re.compile(r"-\d+")
 
 
 def default_data_file() -> Path:
-    env = os.environ.get(ENV_DATA_FILE)
-    if env:
-        return Path(env).expanduser()
+    """The default canonical data file under the XDG data home."""
     xdg = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
     return base / "context-switch" / "data.json"
@@ -56,6 +54,19 @@ def read_document(ctx: click.Context) -> Document:
         return get_provider(ctx).read().document
     except StorageError as e:
         raise click.ClickException(str(e)) from e
+
+
+def storage_info(ctx: click.Context) -> dict[str, str]:
+    """Storage location as a URI for ``status --verbose``.
+
+    The URI scheme hints at the storage driver: ``file://`` for the local
+    filesystem provider, an object-storage scheme once a remote provider
+    exists.
+    """
+    return {
+        "url": Path(ctx.obj["data_file"]).expanduser().resolve().as_uri(),
+        "source": str(ctx.obj["data_file_origin"]),
+    }
 
 
 def transact(
