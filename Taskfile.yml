@@ -47,6 +47,11 @@ tasks:
     cmds:
       - echo "Documentation serving not yet configured"
 
+  stats:
+    desc: Show lines-of-code statistics
+    cmds:
+      - cloc --vcs=git --quiet . | tail -n +2
+
   changelog:
     desc: Preview unreleased changelog
     cmds:
