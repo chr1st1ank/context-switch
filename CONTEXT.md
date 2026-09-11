@@ -18,6 +18,14 @@ _Avoid_: current frame, running session
 The operation that stops the active timer and starts a new timer in one logical action.
 _Avoid_: restart (when describing the new system)
 
+**Resume**:
+The operation that starts a new timer copying the project and tags of a previous span, typically after a break. It requires that no timer is active; changing tasks while recording is a switch.
+_Avoid_: restart
+
+**Cancel**:
+The operation that deletes the active timer's span so that no time is recorded.
+_Avoid_: undo, delete
+
 **Unassigned time**:
 A span whose project is currently null. It is valid but should remain visible for later classification.
 _Avoid_: orphaned time, unknown project

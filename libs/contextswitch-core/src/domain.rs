@@ -502,6 +502,45 @@ impl Document {
         Ok(())
     }
 
+    /// Insert an already-completed span without touching the active timer.
+    ///
+    /// This is how a client records time that was not tracked live; unlike
+    /// [`Document::start_timer`] it does not require the timer to be idle.
+    pub fn add_span(
+        &mut self,
+        started_at: DateTime<Utc>,
+        stopped_at: DateTime<Utc>,
+        project_id: Option<Uuid>,
+        tag_ids: Vec<Uuid>,
+        at: DateTime<Utc>,
+    ) -> Result<Uuid, DomainError> {
+        self.check_project_ref(project_id)?;
+        let tag_ids = self.normalize_tags(tag_ids)?;
+        if started_at > stopped_at {
+            return Err(DomainError::InvalidTimeRange);
+        }
+        let mut span = Span::new(started_at, project_id, tag_ids);
+        span.stopped_at = Some(stopped_at);
+        span.created_at = at;
+        span.updated_at = at;
+        let id = span.id;
+        self.spans.insert(id, span);
+        Ok(id)
+    }
+
+    /// Remove a span entirely. Removing the active span discards the running
+    /// timer and clears `active_span_id`; nothing references spans, so no
+    /// other cleanup is needed.
+    pub fn remove_span(&mut self, span_id: Uuid) -> Result<(), DomainError> {
+        if self.spans.remove(&span_id).is_none() {
+            return Err(DomainError::SpanNotFound(span_id));
+        }
+        if self.active_span_id == Some(span_id) {
+            self.active_span_id = None;
+        }
+        Ok(())
+    }
+
     /// Clear a span's project assignment. The time stays visible as
     /// unassigned for later classification.
     pub fn unassign_span(&mut self, span_id: Uuid, at: DateTime<Utc>) -> Result<(), DomainError> {
@@ -715,6 +754,33 @@ impl Document {
         )?)
     }
 
+    #[pyo3(
+        name = "add_span",
+        signature = (started_at, stopped_at, project_id=None, tag_ids=None, at=None)
+    )]
+    fn py_add_span(
+        &mut self,
+        started_at: DateTime<Utc>,
+        stopped_at: DateTime<Utc>,
+        project_id: Option<String>,
+        tag_ids: Option<Vec<String>>,
+        at: Option<DateTime<Utc>>,
+    ) -> PyResult<String> {
+        let id = self.add_span(
+            started_at,
+            stopped_at,
+            parse_uuid_opt(project_id)?,
+            parse_uuid_vec(tag_ids)?,
+            at.unwrap_or_else(Utc::now),
+        )?;
+        Ok(id.to_string())
+    }
+
+    #[pyo3(name = "remove_span")]
+    fn py_remove_span(&mut self, span_id: String) -> PyResult<()> {
+        Ok(self.remove_span(parse_uuid(&span_id)?)?)
+    }
+
     #[pyo3(name = "unassign_span")]
     fn py_unassign_span(&mut self, span_id: String, at: DateTime<Utc>) -> PyResult<()> {
         Ok(self.unassign_span(parse_uuid(&span_id)?, at)?)
@@ -908,6 +974,59 @@ mod tests {
         assert!(matches!(
             doc.edit_span(id, at(200), Some(at(150)), None, None, None),
             Err(DomainError::InvalidTimeRange)
+        ));
+    }
+
+    #[test]
+    fn add_span_records_completed_span_without_touching_active() {
+        let mut doc = Document::new();
+        let project = doc.add_project("work", at(0)).unwrap();
+        let active = doc.start_timer(at(500), Some(project), vec![]).unwrap();
+
+        let added = doc
+            .add_span(at(0), at(100), Some(project), vec![], at(600))
+            .unwrap();
+        assert_eq!(doc.spans[&added].stopped_at, Some(at(100)));
+        assert_eq!(doc.active_span_id, Some(active));
+
+        assert!(matches!(
+            doc.add_span(at(200), at(100), None, vec![], at(600)),
+            Err(DomainError::InvalidTimeRange)
+        ));
+        assert!(matches!(
+            doc.add_span(at(0), at(100), Some(Uuid::new_v4()), vec![], at(600)),
+            Err(DomainError::ProjectNotFound(_))
+        ));
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn remove_span_discards_active_timer() {
+        let mut doc = Document::new();
+        let active = doc.start_timer(at(0), None, vec![]).unwrap();
+        doc.remove_span(active).unwrap();
+        assert_eq!(doc.active_span_id, None);
+        assert!(doc.spans.is_empty());
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn remove_span_keeps_other_spans_and_active() {
+        let mut doc = Document::new();
+        let first = doc.start_timer(at(0), None, vec![]).unwrap();
+        let second = doc.switch(at(10), None, vec![]).unwrap();
+        doc.remove_span(first).unwrap();
+        assert!(!doc.spans.contains_key(&first));
+        assert_eq!(doc.active_span_id, Some(second));
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn remove_span_unknown_errors() {
+        let mut doc = Document::new();
+        assert!(matches!(
+            doc.remove_span(Uuid::new_v4()),
+            Err(DomainError::SpanNotFound(_))
         ));
     }
 

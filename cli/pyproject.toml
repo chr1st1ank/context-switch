@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "context-switch CLI client for time tracking"
 license = "Apache-2.0"
 requires-python = ">=3.14"
-dependencies = ["click>=8.1.0", "contextswitch-core", "pydantic>=2.0.0"]
+dependencies = ["click>=8.1.0", "contextswitch-core"]
+
+[project.scripts]
+cosw = "cosw.cli:main"
 
 [tool.uv.sources]
 contextswitch-core = { workspace = true }

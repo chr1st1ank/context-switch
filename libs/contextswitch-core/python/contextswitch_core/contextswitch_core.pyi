@@ -102,6 +102,20 @@ class Document:
         stopping goes through ``stop_timer``/``switch``. To clear a span's
         project use ``unassign_span``.
         """
+    def add_span(
+        self,
+        started_at: datetime,
+        stopped_at: datetime,
+        project_id: str | None = None,
+        tag_ids: list[str] | None = None,
+        at: datetime | None = None,
+    ) -> str:
+        """Insert an already-completed span without touching the active timer.
+
+        ``at`` defaults to now; it only stamps the span's mutation metadata.
+        """
+    def remove_span(self, span_id: str) -> None:
+        """Delete a span. Removing the active span discards the running timer."""
     def unassign_span(self, span_id: str, at: datetime) -> None:
         """Clear a span's project assignment."""
     def add_project(self, name: str, at: datetime) -> str:
