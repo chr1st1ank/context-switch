@@ -164,6 +164,7 @@ Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) for de
 ## Documentation
 
 - [System Architecture](docs/architecture.md)
+- [Implementation Backlog](docs/backlog.md)
 - [Domain Language](CONTEXT.md)
 - [Architecture Decisions](docs/decisions/)
 - [Agent Guidance](AGENTS.md)

@@ -221,9 +221,15 @@ The system is online-first. When disconnected:
 
 See `docs/architecture.md` section 7 for details.
 
+## Implementation backlog
+
+`docs/backlog.md` tracks outstanding work items. Check it before planning
+new features, and remove items from the list as they are implemented.
+
 ## When in doubt
 
 - Check `docs/architecture.md` for system design
+- Check `docs/backlog.md` for outstanding work items
 - Check `CONTEXT.md` for domain language
 - Check existing ADRs in `docs/decisions/`
 - Run `task check` before pushing
