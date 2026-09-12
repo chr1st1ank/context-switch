@@ -67,7 +67,8 @@ compare-and-write without a server.
 
 Every commit validates the whole document: schema version, `active_span_id`
 consistency, referential integrity (`project_id`/`tag_ids` exist),
-`started_at <= stopped_at`, and name uniqueness. Stopping the active span
+`started_at <= stopped_at`, non-overlapping spans (the active span is
+unbounded, so nothing may end after its start), and name uniqueness. Stopping the active span
 goes exclusively through `stop_timer`/`switch`; span edits may change
 `started_at`, `project_id`, `tag_ids`, and may correct `stopped_at` on
 already-stopped spans only. Mutations take an explicit `at` timestamp so

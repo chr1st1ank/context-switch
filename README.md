@@ -144,6 +144,7 @@ COSW_DATA_FILE=/tmp/test.json cosw log --range week
 ```
 
 The script generates:
+
 - Weekdays only; 8h workdays starting 08:00–09:30
 - 50% coding (45–135m blocks), 25% meetings (20–70m), 25% orga (30–90m)
 - Realistic breaks: one lunch break (30–60m) and ~15% short gaps (10–30m)

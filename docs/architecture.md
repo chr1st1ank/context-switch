@@ -20,7 +20,7 @@ The first release does not include an API server or multi-user collaboration.
 
 1. **Central consistency over long-lived offline work.** The selected storage provider is authoritative. Clients may cache data, but they must not silently overwrite newer data.
 2. **Short transactions.** Clients read a version, make one small mutation, and conditionally commit it. User editing must never hold a storage lock.
-3. **One global active timer.** The invariant is enforced by the storage transaction, not by client conventions.
+3. **One global active timer, no overlapping spans.** These invariants are enforced by the storage transaction, not by client conventions. Time must not be double-recorded.
 4. **Portable contracts.** Versioned JSON schemas and protocol specifications are the cross-language source of truth. Shared code is used where practical, but platform languages are not forced to match.
 5. **Reports are derived.** Reports are computed on demand from raw synchronized records.
 6. **Provider independence.** Local filesystem and remote object storage implement the same provider contract. Provider-specific credentials and optional encryption stay outside the domain model.

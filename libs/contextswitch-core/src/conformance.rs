@@ -109,6 +109,22 @@ where
 
     // The rejected commit must not have modified canonical data.
     assert_eq!(provider.read().unwrap().version, snapshot.version);
+
+    // Overlapping spans are likewise rejected: time must not be
+    // double-recorded, so this is enforced by the commit.
+    let mut document = snapshot.document.clone();
+    let mut span_a = Span::new(at(0), None, vec![]);
+    span_a.stopped_at = Some(at(100));
+    let mut span_b = Span::new(at(50), None, vec![]);
+    span_b.stopped_at = Some(at(150));
+    document.spans.insert(span_a.id, span_a);
+    document.spans.insert(span_b.id, span_b);
+
+    match provider.commit(document, &snapshot.version) {
+        Err(StorageError::InvalidData(_)) => {}
+        other => panic!("overlapping spans must fail with InvalidData, got {other:?}"),
+    }
+    assert_eq!(provider.read().unwrap().version, snapshot.version);
 }
 
 fn concurrent_commits_have_a_single_winner<F>(make_provider: &mut F)

@@ -7,7 +7,7 @@ The domain of the context-switch single-user, multi-device time-tracking system 
 ### Recording
 
 **Span**:
-A mutable record of a period during which the user records time. It has a start time, an optional stop time while active, an optional project, and zero or more tags.
+A mutable record of a period during which the user records time. It has a start time, an optional stop time while active, an optional project, and zero or more tags. Spans are half-open intervals that never overlap — time must not be double-recorded — though touching boundaries are allowed.
 _Avoid_: time entry, frame, session, booking (unless referring to an external system)
 
 **Active timer**:

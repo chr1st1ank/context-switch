@@ -46,6 +46,10 @@ pub enum DomainError {
     /// `started_at` must not be later than `stopped_at`.
     #[error("started_at must not be later than stopped_at")]
     InvalidTimeRange,
+    /// The span overlaps an existing span; the contained ID is the span
+    /// it conflicts with. Time must not be double-recorded.
+    #[error("span overlaps existing span {0}")]
+    Overlap(Uuid),
     /// `stopped_at` cannot be set or cleared by editing a span.
     #[error("stopped_at cannot be set or cleared by editing a span")]
     InvalidStoppedAtEdit,
@@ -218,6 +222,18 @@ impl Span {
     }
 }
 
+/// Whether two `[start, end)` intervals intersect. A `None` end means the
+/// interval is still running and extends indefinitely, so the active span
+/// occupies everything from its start onward.
+fn intervals_overlap(
+    a_start: DateTime<Utc>,
+    a_end: Option<DateTime<Utc>>,
+    b_start: DateTime<Utc>,
+    b_end: Option<DateTime<Utc>>,
+) -> bool {
+    a_end.is_none_or(|end| b_start < end) && b_end.is_none_or(|end| a_start < end)
+}
+
 #[pymethods]
 impl Span {
     #[new]
@@ -341,10 +357,22 @@ impl Document {
             return Err(DomainError::DuplicateTagName(name));
         }
         match self.active_span_id {
-            Some(id) if unstopped == [id] => Ok(()),
-            None if unstopped.is_empty() => Ok(()),
-            _ => Err(DomainError::InconsistentActiveSpan),
+            Some(id) if unstopped == [id] => {}
+            None if unstopped.is_empty() => {}
+            _ => return Err(DomainError::InconsistentActiveSpan),
         }
+        // No two spans may overlap. Sorted by start, an overlap always
+        // shows up between adjacent spans; the unstopped span runs
+        // unbounded and so conflicts with anything that starts after it.
+        let mut ordered: Vec<&Span> = self.spans.values().collect();
+        ordered.sort_by_key(|span| span.started_at);
+        for pair in ordered.windows(2) {
+            let (prev, next) = (pair[0], pair[1]);
+            if prev.stopped_at.is_none_or(|end| next.started_at < end) {
+                return Err(DomainError::Overlap(prev.id));
+            }
+        }
+        Ok(())
     }
 
     fn check_project_ref(&self, project_id: Option<Uuid>) -> Result<(), DomainError> {
@@ -388,6 +416,26 @@ impl Document {
         Ok(())
     }
 
+    /// Reject a `[started_at, stopped_at)` interval that overlaps an
+    /// existing span. `stopped_at` of `None` is the active timer and
+    /// extends indefinitely. `except` skips the span being replaced.
+    fn check_overlap(
+        &self,
+        started_at: DateTime<Utc>,
+        stopped_at: Option<DateTime<Utc>>,
+        except: Option<Uuid>,
+    ) -> Result<(), DomainError> {
+        for span in self.spans.values() {
+            if Some(span.id) == except {
+                continue;
+            }
+            if intervals_overlap(started_at, stopped_at, span.started_at, span.stopped_at) {
+                return Err(DomainError::Overlap(span.id));
+            }
+        }
+        Ok(())
+    }
+
     /// Start a new active timer at `at`.
     ///
     /// Fails with [`DomainError::AlreadyActive`] if a timer is running; the
@@ -404,6 +452,7 @@ impl Document {
         }
         self.check_project_ref(project_id)?;
         let tag_ids = self.normalize_tags(tag_ids)?;
+        self.check_overlap(at, None, None)?;
         let span = Span::new(at, project_id, tag_ids);
         let id = span.id;
         self.spans.insert(id, span);
@@ -418,11 +467,16 @@ impl Document {
         let id = self.active_span_id.ok_or(DomainError::NoActiveTimer)?;
         let span = self
             .spans
-            .get_mut(&id)
+            .get(&id)
             .ok_or(DomainError::InconsistentActiveSpan)?;
         if at < span.started_at {
             return Err(DomainError::InvalidTimeRange);
         }
+        self.check_overlap(span.started_at, Some(at), Some(id))?;
+        let span = self
+            .spans
+            .get_mut(&id)
+            .ok_or(DomainError::InconsistentActiveSpan)?;
         span.stopped_at = Some(at);
         span.updated_at = at;
         self.active_span_id = None;
@@ -443,13 +497,21 @@ impl Document {
         if let Some(id) = self.active_span_id {
             let span = self
                 .spans
-                .get_mut(&id)
+                .get(&id)
                 .ok_or(DomainError::InconsistentActiveSpan)?;
             if at < span.started_at {
                 return Err(DomainError::InvalidTimeRange);
             }
+            self.check_overlap(span.started_at, Some(at), Some(id))?;
+            self.check_overlap(at, None, Some(id))?;
+            let span = self
+                .spans
+                .get_mut(&id)
+                .ok_or(DomainError::InconsistentActiveSpan)?;
             span.stopped_at = Some(at);
             span.updated_at = at;
+        } else {
+            self.check_overlap(at, None, None)?;
         }
         let span = Span::new(at, project_id, tag_ids);
         let id = span.id;
@@ -476,20 +538,29 @@ impl Document {
     ) -> Result<(), DomainError> {
         self.check_project_ref(project_id)?;
         let new_tags = tag_ids.map(|ids| self.normalize_tags(ids)).transpose()?;
-        let span = self
-            .spans
-            .get_mut(&span_id)
-            .ok_or(DomainError::SpanNotFound(span_id))?;
-        if stopped_at.is_some() && span.stopped_at.is_none() {
-            return Err(DomainError::InvalidStoppedAtEdit);
-        }
-        let new_started = started_at.unwrap_or(span.started_at);
-        let new_stopped = stopped_at.or(span.stopped_at);
+        let (new_started, new_stopped) = {
+            let span = self
+                .spans
+                .get(&span_id)
+                .ok_or(DomainError::SpanNotFound(span_id))?;
+            if stopped_at.is_some() && span.stopped_at.is_none() {
+                return Err(DomainError::InvalidStoppedAtEdit);
+            }
+            (
+                started_at.unwrap_or(span.started_at),
+                stopped_at.or(span.stopped_at),
+            )
+        };
         if let Some(stopped) = new_stopped {
             if new_started > stopped {
                 return Err(DomainError::InvalidTimeRange);
             }
         }
+        self.check_overlap(new_started, new_stopped, Some(span_id))?;
+        let span = self
+            .spans
+            .get_mut(&span_id)
+            .ok_or(DomainError::SpanNotFound(span_id))?;
         span.started_at = new_started;
         span.stopped_at = new_stopped;
         if let Some(project) = project_id {
@@ -519,6 +590,7 @@ impl Document {
         if started_at > stopped_at {
             return Err(DomainError::InvalidTimeRange);
         }
+        self.check_overlap(started_at, Some(stopped_at), None)?;
         let mut span = Span::new(started_at, project_id, tag_ids);
         span.stopped_at = Some(stopped_at);
         span.created_at = at;
@@ -998,6 +1070,132 @@ mod tests {
             Err(DomainError::ProjectNotFound(_))
         ));
         doc.validate().unwrap();
+    }
+
+    #[test]
+    fn add_span_rejects_overlapping_spans() {
+        let mut doc = Document::new();
+        doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
+        for (start, end) in [(50, 150), (10, 50), (0, 200)] {
+            assert!(
+                matches!(
+                    doc.add_span(at(start), at(end), None, vec![], at(0)),
+                    Err(DomainError::Overlap(_))
+                ),
+                "span {start}–{end} must be rejected as overlapping"
+            );
+        }
+        // Touching boundaries do not overlap.
+        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
+        doc.add_span(at(300), at(400), None, vec![], at(0)).unwrap();
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn add_span_rejects_overlap_with_active_timer() {
+        let mut doc = Document::new();
+        doc.start_timer(at(100), None, vec![]).unwrap();
+        // The running timer occupies everything from its start onward.
+        assert!(matches!(
+            doc.add_span(at(150), at(200), None, vec![], at(150)),
+            Err(DomainError::Overlap(_))
+        ));
+        // A span ending exactly at the timer's start is fine.
+        doc.add_span(at(0), at(100), None, vec![], at(150)).unwrap();
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn edit_span_rejects_overlap() {
+        let mut doc = Document::new();
+        let a = doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
+        let b = doc.add_span(at(200), at(300), None, vec![], at(0)).unwrap();
+        assert!(matches!(
+            doc.edit_span(b, at(400), Some(at(50)), None, None, None),
+            Err(DomainError::Overlap(_))
+        ));
+        assert!(matches!(
+            doc.edit_span(a, at(400), None, Some(at(250)), None, None),
+            Err(DomainError::Overlap(_))
+        ));
+        // Moving b's start exactly to a's end is allowed, and a span never
+        // overlaps itself.
+        doc.edit_span(b, at(400), Some(at(100)), None, None, None)
+            .unwrap();
+        doc.edit_span(a, at(400), Some(at(10)), Some(at(90)), None, None)
+            .unwrap();
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn start_timer_rejects_start_before_a_recorded_span_ends() {
+        let mut doc = Document::new();
+        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
+        assert!(matches!(
+            doc.start_timer(at(150), None, vec![]),
+            Err(DomainError::Overlap(_))
+        ));
+        // Starting exactly when the recorded span ends is fine.
+        doc.start_timer(at(200), None, vec![]).unwrap();
+        doc.validate().unwrap();
+    }
+
+    #[test]
+    fn stop_timer_rejects_overlap_with_recorded_span() {
+        let mut doc = Document::new();
+        let active = doc.start_timer(at(0), None, vec![]).unwrap();
+        // Inject a span overlapping the timer's future, bypassing
+        // add_span's check: the mutation must still enforce the invariant.
+        let mut stray = Span::new(at(50), None, vec![]);
+        stray.stopped_at = Some(at(100));
+        doc.spans.insert(stray.id, stray);
+        assert!(matches!(
+            doc.stop_timer(at(150)),
+            Err(DomainError::Overlap(_))
+        ));
+        assert_eq!(doc.active_span_id, Some(active));
+        assert!(doc.active_span().unwrap().is_active());
+    }
+
+    #[test]
+    fn switch_rejects_overlap_with_recorded_span() {
+        // The new timer may not run into recorded time.
+        let mut doc = Document::new();
+        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
+        assert!(matches!(
+            doc.switch(at(150), None, vec![]),
+            Err(DomainError::Overlap(_))
+        ));
+        doc.switch(at(200), None, vec![]).unwrap();
+
+        // Stopping the old timer may not overlap a recorded span either.
+        let mut doc = Document::new();
+        doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut stray = Span::new(at(50), None, vec![]);
+        stray.stopped_at = Some(at(100));
+        doc.spans.insert(stray.id, stray);
+        assert!(matches!(
+            doc.switch(at(150), None, vec![]),
+            Err(DomainError::Overlap(_))
+        ));
+        assert!(doc.active_span().unwrap().is_active());
+    }
+
+    #[test]
+    fn validate_rejects_overlapping_spans() {
+        let mut doc = Document::new();
+        let a = doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
+        let b = doc.add_span(at(200), at(300), None, vec![], at(0)).unwrap();
+        doc.validate().unwrap();
+
+        doc.spans.get_mut(&b).unwrap().started_at = at(50);
+        assert!(matches!(doc.validate(), Err(DomainError::Overlap(_))));
+
+        // The active span runs unbounded: a later span overlaps it.
+        doc.spans.get_mut(&b).unwrap().started_at = at(200);
+        doc.spans.get_mut(&a).unwrap().stopped_at = None;
+        doc.active_span_id = Some(a);
+        assert!(matches!(doc.validate(), Err(DomainError::Overlap(_))));
     }
 
     #[test]

@@ -57,6 +57,24 @@ def test_add_inverted_range_errors(invoke) -> None:
     assert result.exit_code == 1
 
 
+def test_add_overlapping_span_errors(invoke) -> None:
+    _seed(invoke)
+    result = invoke(
+        "add", "personal", "--from", "2026-09-10T09:00:00Z", "--to", "2026-09-10T10:30:00Z"
+    )
+    assert result.exit_code == 1
+    assert "overlap" in result.output
+
+
+def test_add_overlapping_active_timer_errors(invoke) -> None:
+    invoke("start", "apollo11", "--at", "2026-09-10T12:00:00Z")
+    result = invoke(
+        "add", "personal", "--from", "2026-09-10T13:00:00Z", "--to", "2026-09-10T14:00:00Z"
+    )
+    assert result.exit_code == 1
+    assert "overlap" in result.output
+
+
 def test_add_invalid_to_errors(invoke) -> None:
     result = invoke("add", "--from", "2026-09-10", "--to", "bogus")
     assert result.exit_code == 2
@@ -74,6 +92,13 @@ def test_edit_times(invoke) -> None:
     )
     assert result.exit_code == 0
     assert "Updated personal" in result.output
+
+
+def test_edit_into_overlap_errors(invoke) -> None:
+    _seed(invoke)
+    result = invoke("edit", "-1", "--start", "2026-09-10T09:00:00Z")
+    assert result.exit_code == 1
+    assert "overlap" in result.output
 
 
 def test_edit_project(invoke) -> None:
