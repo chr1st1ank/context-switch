@@ -44,6 +44,7 @@ htmlcov/
 *.a
 *.so
 *.dylib
+target/
 
 # Workspace-specific
 local/
