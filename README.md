@@ -130,6 +130,26 @@ context-switch/
 - **Testing**: `pytest` for Python, `cargo test` for Rust; 95% coverage gate for libraries
 - **Commits**: Conventional Commits for semantic versioning
 
+### Testing with sample data
+
+Use `scripts/simulate.py` to generate realistic working time data for manual testing and demos:
+
+```bash
+# Generate 14 days of sample data (weekdays only, 8h days)
+COSW_DATA_FILE=/tmp/test.json ./scripts/simulate.py 14
+
+# View the generated data
+COSW_DATA_FILE=/tmp/test.json cosw report --range all
+COSW_DATA_FILE=/tmp/test.json cosw log --range week
+```
+
+The script generates:
+- Weekdays only; 8h workdays starting 08:00–09:30
+- 50% coding (45–135m blocks), 25% meetings (20–70m), 25% orga (30–90m)
+- Realistic breaks: one lunch break (30–60m) and ~15% short gaps (10–30m)
+- Half of all breaks recorded as unassigned spans; the rest left as gaps
+- Today's blocks clamped to now (never records into the future)
+
 ## Offline behavior
 
 The system is online-first. When disconnected:
