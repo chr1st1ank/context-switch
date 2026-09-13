@@ -2,6 +2,7 @@
 
 import json
 import runpy
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -167,6 +168,81 @@ def test_main_module_entrypoint() -> None:
 
     with pytest.raises(SystemExit):
         runpy.run_path(cli.__file__, run_name="__main__")
+
+
+def _make_envelope(tmp_path: Path, passphrase: str, plaintext: str = '{"hello": "world"}') -> Path:
+    from contextswitch_core import encrypt_envelope
+
+    envelope_bytes = encrypt_envelope(plaintext, passphrase)
+    path = tmp_path / "logbook.envelope"
+    path.write_bytes(envelope_bytes)
+    return path
+
+
+def test_decrypt_command_round_trip(tmp_path: Path) -> None:
+    """`cosw decrypt` on a valid envelope prints the decrypted plaintext,
+    and never needs a config file or storage provider to do it."""
+    envelope_file = _make_envelope(tmp_path, "correct_passphrase")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["decrypt", str(envelope_file), "--passphrase", "correct_passphrase"],
+        env={"COSW_CONFIG": str(tmp_path / "does-not-exist.toml")},
+    )
+    assert result.exit_code == 0, result.output
+    assert '"hello": "world"' in result.output
+
+
+def test_decrypt_command_wrong_passphrase(tmp_path: Path) -> None:
+    envelope_file = _make_envelope(tmp_path, "correct_passphrase")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["decrypt", str(envelope_file)], input="wrong_passphrase\n")
+    assert result.exit_code != 0
+    assert "decryption failed" in result.output
+
+
+def test_decrypt_command_truncated_envelope(tmp_path: Path) -> None:
+    """A structurally malformed file is reported as corrupt, not as a
+    decryption failure — it was never a valid envelope to begin with."""
+    envelope_file = tmp_path / "truncated.envelope"
+    envelope_file.write_bytes(b"not an envelope")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["decrypt", str(envelope_file)], input="passphrase\n")
+    assert result.exit_code != 0
+    assert "decryption failed" in result.output
+
+
+def test_decrypt_command_passphrase_command(tmp_path: Path) -> None:
+    envelope_file = _make_envelope(tmp_path, "mypass")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["decrypt", str(envelope_file), "--passphrase-command", "echo mypass"]
+    )
+    assert result.exit_code == 0, result.output
+    assert '"hello": "world"' in result.output
+
+
+def test_decrypt_command_rejects_both_passphrase_options(tmp_path: Path) -> None:
+    envelope_file = _make_envelope(tmp_path, "mypass")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "decrypt",
+            str(envelope_file),
+            "--passphrase",
+            "mypass",
+            "--passphrase-command",
+            "echo mypass",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
 
 
 def test_python_dash_m() -> None:

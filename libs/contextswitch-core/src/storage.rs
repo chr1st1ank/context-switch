@@ -7,22 +7,26 @@
 //! prevents silent stale overwrites — callers read, apply one focused
 //! mutation, and commit against the version they saw.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use pyo3::prelude::*;
 use thiserror::Error;
 
+use crate::blob::{BlobStore, LocalFsBlobStore};
+use crate::crypto::{EnvelopeCipher, IdentityCipher};
 use crate::domain::{Document, DomainError};
 use crate::exceptions;
+use crate::provider::GenericProvider;
+use crate::s3::S3BlobStore;
 
 /// How long a commit waits for the lock before giving up.
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Delay between lock acquisition attempts.
-const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+pub(crate) const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 /// A lockfile older than this is treated as abandoned and reclaimed.
 /// Commits take microseconds, so 30 s is far beyond any real write.
 const STALE_LOCK_AGE: Duration = Duration::from_secs(30);
@@ -34,7 +38,7 @@ pub enum StorageError {
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     /// The stored bytes are not a valid, consistent document.
-    #[error("corrupt document: {0}")]
+    #[error("corrupt logbook: {0}")]
     Corrupt(String),
     /// The stored version no longer matches the version the caller wrote
     /// against — another commit won the race.
@@ -46,6 +50,15 @@ pub enum StorageError {
     /// The document a caller tried to commit violates a domain invariant.
     #[error("invalid document: {0}")]
     InvalidData(#[from] DomainError),
+    /// Decryption failed.
+    #[error("decryption failed (wrong passphrase or tampered data)")]
+    DecryptionFailed,
+    /// Unauthorized or credential error.
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
+    /// S3 or remote storage unavailable / network failure.
+    #[error("storage unavailable: {0}")]
+    Unavailable(String),
 }
 
 impl From<StorageError> for PyErr {
@@ -82,7 +95,7 @@ pub trait StorageProvider: Send + Sync {
 }
 
 /// Removes the lockfile when the guard goes out of scope.
-struct LockGuard(PathBuf);
+pub struct LockGuard(pub(crate) PathBuf);
 
 impl Drop for LockGuard {
     fn drop(&mut self) {
@@ -100,9 +113,8 @@ impl Drop for LockGuard {
 /// [`STALE_LOCK_AGE`].
 #[pyclass]
 pub struct LocalFsProvider {
+    inner: GenericProvider,
     path: PathBuf,
-    lock_timeout: Duration,
-    stale_lock_age: Duration,
 }
 
 impl LocalFsProvider {
@@ -119,140 +131,46 @@ impl LocalFsProvider {
         stale_lock_age: Duration,
     ) -> Result<Self, StorageError> {
         let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        // create_new avoids clobbering a document a concurrent init just wrote.
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                let json = serde_json::to_string_pretty(&Document::new())
-                    .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-                file.write_all(json.as_bytes())?;
-                file.sync_all()?;
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e.into()),
-        }
-        Ok(Self {
-            path,
+        let blob_store = Arc::new(LocalFsBlobStore::new(
+            path.clone(),
             lock_timeout,
             stale_lock_age,
-        })
+        )?);
+
+        // Bootstrap an empty v1 document if none exists yet. Two processes
+        // racing to open the same fresh path may both observe absence and
+        // both attempt this; the loser's `IfAbsent` put fails with
+        // `Conflict`, which is not a real failure here — the file exists
+        // either way once one of them wins, so it is swallowed rather than
+        // surfaced as an error opening the provider.
+        if !path.exists() {
+            let doc = Document::new();
+            let json = serde_json::to_string_pretty(&doc)
+                .map_err(|e| StorageError::Corrupt(e.to_string()))?;
+            match blob_store.put(json.as_bytes(), crate::blob::Precondition::IfAbsent) {
+                Ok(_) | Err(StorageError::Conflict { .. }) => {}
+                Err(e) => return Err(e),
+            }
+        }
+
+        let inner = GenericProvider::new(blob_store, Arc::new(IdentityCipher), None);
+
+        Ok(Self { inner, path })
     }
 
     /// The data file this provider manages.
     pub fn path(&self) -> &Path {
         &self.path
     }
-
-    fn lock_path(&self) -> PathBuf {
-        sibling_path(&self.path, "lock")
-    }
-
-    fn tmp_path(&self) -> PathBuf {
-        sibling_path(&self.path, "tmp")
-    }
-
-    /// Acquire the commit lock, waiting up to `lock_timeout` and reclaiming
-    /// lockfiles older than `stale_lock_age`.
-    fn acquire_lock(&self) -> Result<LockGuard, StorageError> {
-        let lock_path = self.lock_path();
-        let deadline = Instant::now() + self.lock_timeout;
-        loop {
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&lock_path)
-            {
-                Ok(mut file) => {
-                    let _ = writeln!(file, "pid={}", std::process::id());
-                    return Ok(LockGuard(lock_path));
-                }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    if self.is_stale(&lock_path) {
-                        let _ = fs::remove_file(&lock_path);
-                        continue;
-                    }
-                    if Instant::now() >= deadline {
-                        return Err(StorageError::Locked);
-                    }
-                    thread::sleep(LOCK_RETRY_INTERVAL);
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
-    }
-
-    fn is_stale(&self, lock_path: &Path) -> bool {
-        fs::metadata(lock_path)
-            .and_then(|m| m.modified())
-            .map(|modified| modified.elapsed().unwrap_or_default() > self.stale_lock_age)
-            .unwrap_or(false)
-    }
-
-    /// Serialize `document` and atomically replace the data file.
-    fn write_atomic(&self, document: &Document) -> Result<(), StorageError> {
-        let json = serde_json::to_string_pretty(document)
-            .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-        let tmp_path = self.tmp_path();
-        {
-            let mut file = File::create(&tmp_path)?;
-            file.write_all(json.as_bytes())?;
-            file.sync_all()?;
-        }
-        fs::rename(&tmp_path, &self.path)?;
-        // Flush the directory entry so the rename survives a crash.
-        if let Some(dir) = self.path.parent() {
-            if let Ok(dir) = File::open(dir) {
-                let _ = dir.sync_all();
-            }
-        }
-        Ok(())
-    }
-}
-
-/// `data.json` + `"lock"` → `data.json.lock`.
-fn sibling_path(path: &Path, extension: &str) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|n| n.to_os_string())
-        .unwrap_or_default();
-    name.push(format!(".{extension}"));
-    path.with_file_name(name)
 }
 
 impl StorageProvider for LocalFsProvider {
     fn read(&self) -> Result<StorageSnapshot, StorageError> {
-        let json = fs::read_to_string(&self.path)?;
-        let document: Document =
-            serde_json::from_str(&json).map_err(|e| StorageError::Corrupt(e.to_string()))?;
-        // A document that fails domain validation is treated as corrupt:
-        // never silently repair canonical data.
-        document
-            .validate()
-            .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-        Ok(StorageSnapshot {
-            version: document.revision.to_string(),
-            document,
-        })
+        self.inner.read()
     }
 
     fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError> {
-        // Reject documents violating domain invariants before taking the lock.
-        document.validate()?;
-        let _guard = self.acquire_lock()?;
-        let current = self.read()?;
-        if current.version != expected_version {
-            return Err(StorageError::Conflict {
-                expected: expected_version.to_string(),
-                actual: current.version,
-            });
-        }
-        // The provider owns the revision counter.
-        let mut document = document;
-        document.revision = current.document.revision + 1;
-        self.write_atomic(&document)?;
-        Ok(document.revision.to_string())
+        self.inner.commit(document, expected_version)
     }
 }
 
@@ -268,6 +186,15 @@ impl LocalFsProvider {
         self.path.display().to_string()
     }
 
+    /// Storage location as a `file://` URI, mirroring `S3Provider.location_url`
+    /// so callers (e.g. `cosw status --verbose`) don't need to duck-type on
+    /// which provider they were handed.
+    #[getter(location_url)]
+    fn py_location_url(&self) -> String {
+        let absolute = fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+        format!("file://{}", absolute.display())
+    }
+
     #[pyo3(name = "read")]
     fn py_read(&self) -> PyResult<StorageSnapshot> {
         Ok(<Self as StorageProvider>::read(self)?)
@@ -280,5 +207,92 @@ impl LocalFsProvider {
             document,
             &expected_version,
         )?)
+    }
+}
+
+/// `logbook.json` + `"lock"` → `logbook.json.lock`.
+pub fn sibling_path(path: &Path, extension: &str) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".{extension}"));
+    path.with_file_name(name)
+}
+
+/// S3-compatible storage provider with mandatory client-side envelope encryption.
+#[pyclass]
+pub struct S3Provider {
+    inner: GenericProvider,
+    location_url: String,
+}
+
+#[pymethods]
+impl S3Provider {
+    #[new]
+    #[pyo3(signature = (bucket, region, prefix, passphrase, endpoint=None, use_path_style=false, profile=None))]
+    fn py_new(
+        bucket: String,
+        region: String,
+        prefix: String,
+        passphrase: String,
+        endpoint: Option<String>,
+        use_path_style: bool,
+        profile: Option<String>,
+    ) -> PyResult<Self> {
+        let blob_store = Arc::new(S3BlobStore::new(
+            bucket.clone(),
+            region.clone(),
+            prefix.clone(),
+            endpoint,
+            use_path_style,
+            profile,
+        ));
+
+        let cipher = Arc::new(EnvelopeCipher);
+        let inner = GenericProvider::new(blob_store, cipher, Some(passphrase));
+
+        let file_key = if prefix.is_empty() {
+            "logbook.json".to_string()
+        } else if prefix.ends_with('/') {
+            format!("{}logbook.json", prefix)
+        } else {
+            format!("{}/logbook.json", prefix)
+        };
+        let location_url = format!("s3://{}/{}", bucket, file_key);
+
+        Ok(Self {
+            inner,
+            location_url,
+        })
+    }
+
+    #[getter(location_url)]
+    fn py_location_url(&self) -> String {
+        self.location_url.clone()
+    }
+
+    #[pyo3(name = "read")]
+    fn py_read(&self) -> PyResult<StorageSnapshot> {
+        Ok(<Self as StorageProvider>::read(self)?)
+    }
+
+    #[pyo3(name = "commit", signature = (document, expected_version))]
+    fn py_commit(&self, document: Document, expected_version: String) -> PyResult<String> {
+        Ok(<Self as StorageProvider>::commit(
+            self,
+            document,
+            &expected_version,
+        )?)
+    }
+}
+
+impl StorageProvider for S3Provider {
+    fn read(&self) -> Result<StorageSnapshot, StorageError> {
+        self.inner.read()
+    }
+
+    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError> {
+        self.inner.commit(document, expected_version)
     }
 }

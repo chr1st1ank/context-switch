@@ -147,6 +147,7 @@ class LocalFsProvider:
     """
 
     path: str
+    location_url: str
 
     def __new__(cls, path: str) -> LocalFsProvider: ...
     def read(self) -> StorageSnapshot:
@@ -155,3 +156,31 @@ class LocalFsProvider:
         """Conditionally write ``document`` if the stored version still
         equals ``expected_version``. Returns the new version on success;
         raises StorageError on conflict."""
+
+class S3Provider:
+    """S3-compatible storage provider with mandatory client-side envelope encryption."""
+
+    location_url: str
+
+    def __new__(
+        cls,
+        bucket: str,
+        region: str,
+        prefix: str,
+        passphrase: str,
+        endpoint: str | None = None,
+        use_path_style: bool = False,
+        profile: str | None = None,
+    ) -> S3Provider: ...
+    def read(self) -> StorageSnapshot:
+        """Read the canonical document and its current version."""
+    def commit(self, document: Document, expected_version: str) -> str:
+        """Conditionally write ``document`` if the stored version still
+        equals ``expected_version``. Returns the new version on success;
+        raises StorageError on conflict."""
+
+def decrypt_envelope(envelope: bytes, passphrase: str) -> str:
+    """Decrypt a client-side encrypted envelope to plaintext JSON."""
+
+def encrypt_envelope(plaintext: str, passphrase: str) -> bytes:
+    """Seal plaintext into a fresh envelope under a new random master key."""

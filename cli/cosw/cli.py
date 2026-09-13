@@ -9,7 +9,7 @@ from typing import Any
 
 import click
 from click.core import ParameterSource
-from contextswitch_core import Document
+from contextswitch_core import Document, StorageError, decrypt_envelope
 
 from cosw.config import (
     CONFIG_SKELETON,
@@ -30,6 +30,7 @@ from cosw.core import (
     resolve_project_id,
     resolve_span,
     resolve_tag_ids,
+    run_passphrase_command,
     sorted_spans,
     span_to_json,
     storage_info,
@@ -61,9 +62,11 @@ def main(ctx: click.Context, data_file: Path | None, config_file: Path | None) -
     try:
         config = load_config(config_path, explicit=config_file is not None)
     except click.ClickException:
-        # The config command must stay usable against a missing or broken
-        # file: it is the tool that creates and fixes it.
-        if ctx.invoked_subcommand != "config":
+        # The config and decrypt commands must stay usable against a missing
+        # or broken config file: config is the tool that creates and fixes
+        # it, and decrypt operates on a standalone envelope file, needing no
+        # storage configuration at all.
+        if ctx.invoked_subcommand not in ("config", "decrypt"):
             raise
         config = Config(path=config_path)
     ctx.obj["config"] = config
@@ -279,6 +282,37 @@ def config(ctx: click.Context, show_path: bool) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(CONFIG_SKELETON)
     click.edit(filename=str(path))
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--passphrase",
+    envvar="COSW_PASSPHRASE",
+    help=(
+        "Passphrase to decrypt with (visible to other users via the process "
+        "list; prefer --passphrase-command, the COSW_PASSPHRASE env var, or "
+        "the interactive prompt). If not provided, you will be prompted."
+    ),
+)
+@click.option("--passphrase-command", help="Command to run to retrieve the passphrase.")
+def decrypt(file: Path, passphrase: str | None, passphrase_command: str | None) -> None:
+    """Decrypt a downloaded logbook to plaintext JSON, for disaster recovery
+    without a working cosw installation or config."""
+    if passphrase and passphrase_command:
+        raise click.UsageError("--passphrase and --passphrase-command are mutually exclusive")
+
+    if passphrase_command:
+        passphrase = run_passphrase_command(passphrase_command)
+    elif not passphrase:
+        passphrase = click.prompt("Enter passphrase for decryption", hide_input=True)
+
+    try:
+        envelope_bytes = file.read_bytes()
+        plaintext = decrypt_envelope(envelope_bytes, passphrase)
+        click.echo(plaintext)
+    except (StorageError, ValueError) as e:
+        raise click.ClickException(f"decryption failed: {e}") from e
 
 
 # Command modules register themselves on ``main`` when imported.

@@ -50,6 +50,26 @@ _Avoid_: backend (the initial system has no API backend)
 The authoritative versioned domain data held by the selected storage provider.
 _Avoid_: server state (there may be no server)
 
+**Document**:
+The canonical data serialized as a single versioned JSON value: spans, projects, tags, and the revision counter. Storage providers read and conditionally write one document.
+_Avoid_: database, record
+
+**Logbook**:
+The single stored object a storage provider persists the document as — `<file>.json` for local storage, `logbook.json` under the configured prefix for object storage. One provider location holds exactly one logbook.
+_Avoid_: data file, blob, data.json
+
+**Envelope**:
+The self-describing byte format a cipher produces when sealing a document for storage: a header (format version, method, key identity, wrapped-key list) bound as associated data, followed by a nonce and the authenticated ciphertext. Envelopes are opaque to the storage provider.
+_Avoid_: encrypted blob, ciphertext (too narrow; excludes the header)
+
+**Revision**:
+The document's monotonically increasing write counter, used as the opaque version a client reads and commits against. Distinct from a blob store's ETag, which exists only to implement compare-and-swap at the byte level.
+_Avoid_: version (ambiguous with schema version), generation
+
+**Master key**:
+The random symmetric key that encrypts a document's plaintext. It is never derived from the passphrase directly; instead it is generated independently and then wrapped (encrypted) under a key derived from the passphrase, so the passphrase can rotate without re-encrypting history.
+_Avoid_: encryption key (ambiguous with the passphrase-derived wrapping key)
+
 **Pending offline action**:
 A locally cached timer lifecycle action that has not yet been accepted by canonical storage.
 _Avoid_: committed event, synchronized event

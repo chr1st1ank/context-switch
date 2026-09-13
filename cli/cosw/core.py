@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from contextswitch_core import (
     DomainError,
     LocalFsProvider,
     Project,
+    S3Provider,
     Span,
     StorageError,
     Tag,
@@ -37,28 +39,73 @@ def default_data_file() -> Path:
     return base / "context-switch" / "data.json"
 
 
-def open_provider(path: Path) -> LocalFsProvider:
+def run_passphrase_command(command: str) -> str:
+    """Run a shell command and return its stdout as a passphrase.
+
+    Shared by the config-driven passphrase source and the standalone
+    ``cosw decrypt --passphrase-command`` flag, so the two paths can't
+    silently drift.
+    """
     try:
-        return LocalFsProvider(str(path))
+        result = subprocess.run(
+            command,
+            shell=True,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.rstrip("\r\n")
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"passphrase command failed: {e}") from e
+
+
+def get_passphrase(config: Config) -> str:
+    if config.passphrase_command:
+        return run_passphrase_command(config.passphrase_command)
+    return click.prompt("Enter passphrase for storage encryption", hide_input=True)
+
+
+def open_provider(config: Config, path: Path) -> LocalFsProvider | S3Provider:
+    try:
+        if config.provider == "s3":
+            if config.bucket is None or config.region is None:
+                raise click.ClickException(
+                    f"{config.path}: 'storage.bucket' and 'storage.region' are required "
+                    "for the 's3' provider"
+                )
+            passphrase = get_passphrase(config)
+            return S3Provider(
+                bucket=config.bucket,
+                region=config.region,
+                prefix=config.prefix,
+                passphrase=passphrase,
+                endpoint=config.endpoint,
+                use_path_style=config.use_path_style,
+                profile=config.profile,
+            )
+        else:
+            return LocalFsProvider(str(path))
     except StorageError as e:
         raise click.ClickException(str(e)) from e
 
 
-def get_provider(ctx: click.Context) -> LocalFsProvider:
+def get_provider(ctx: click.Context) -> LocalFsProvider | S3Provider:
     """The storage provider, opened lazily so that commands which never
     touch canonical data (``config``, ``--help``) don't require a usable
     data file."""
     provider = ctx.obj.get("provider")
     if provider is None:
-        provider = open_provider(ctx.obj["data_file"])
+        provider = open_provider(ctx.obj["config"], ctx.obj["data_file"])
         ctx.obj["provider"] = provider
-    assert isinstance(provider, LocalFsProvider)
+    assert isinstance(provider, (LocalFsProvider, S3Provider))
     return provider
 
 
 def read_document(ctx: click.Context) -> Document:
     try:
-        return get_provider(ctx).read().document
+        doc = get_provider(ctx).read().document
+        assert isinstance(doc, Document)
+        return doc
     except StorageError as e:
         raise click.ClickException(str(e)) from e
 
@@ -70,8 +117,9 @@ def storage_info(ctx: click.Context) -> dict[str, str]:
     filesystem provider, an object-storage scheme once a remote provider
     exists.
     """
+    provider = get_provider(ctx)
     return {
-        "url": Path(ctx.obj["data_file"]).expanduser().resolve().as_uri(),
+        "url": provider.location_url,
         "source": str(ctx.obj["data_file_origin"]),
     }
 

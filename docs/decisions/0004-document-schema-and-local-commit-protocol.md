@@ -126,3 +126,16 @@ overwritten.
 - [x] A stale commit fails with a conflict; the stored document is unchanged.
 - [x] A divergent `active_span_id` reads as corrupt.
 - [x] Locks are held only for the compare-and-write, never during edits.
+
+## Amendment (2026-09-13, see ADR-0007)
+
+The local commit protocol described here is now implemented as a
+composition of a document layer (this ADR's validation and revision
+rules, unchanged) over a `LocalFsBlobStore` blob layer (ADR-0007) with an
+identity cipher. The lockfile, atomic rename, and stale-lock reclamation
+behavior described above is unchanged; it now lives in
+`blob::LocalFsBlobStore` rather than directly in `storage::LocalFsProvider`.
+`LocalFsProvider`'s own bootstrap (creating an empty document if none
+exists) tolerates losing a first-write race to another process: the
+losing side's own `IfAbsent` put failing with a conflict is not surfaced
+as an error opening the provider, since the document exists either way.

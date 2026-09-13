@@ -60,3 +60,13 @@ Chosen option: "Define a native versioned JSON object format", because named fie
 - [ ] Schema validation rejects malformed or unsupported versions clearly.
 - [ ] Reports operate from the native raw records rather than persisted report state.
 - [ ] Future exporters can consume the native model without changing synchronization semantics.
+
+## Amendment (2026-09-13, see ADR-0007/ADR-0008)
+
+The native JSON document is unchanged, but it is no longer the only
+serialization the storage stack knows about: a cipher layer beneath the
+document layer may seal the document's JSON bytes into an encrypted
+envelope before they reach a blob store, and open them back into the same
+JSON on read. The document schema and its versioning remain exactly as
+specified above; the envelope has its own, independent format version (see
+`docs/envelope-format.md`).

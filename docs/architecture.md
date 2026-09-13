@@ -75,7 +75,17 @@ The provider interface must support:
 - optional encryption wrapping/configuration;
 - safe atomic replacement for local files.
 
-A remote object provider may implement the contract with conditional object writes plus a short lease/lock mechanism. A provider that cannot prevent stale overwrites is unsupported.
+A remote object provider must implement the contract with conditional object writes (`If-Absent`/`If-Match`); a backend that cannot honour those preconditions is rejected rather than approximated with a lease or lock object (ADR-0007).
+
+### Storage stack layering
+
+Implemented as a three-layer stack rather than a monolithic provider (`libs/contextswitch-core/src/{storage,provider,blob,crypto}.rs`):
+
+- **Document layer** (`storage::StorageProvider`, `provider::GenericProvider`): owns serialization, whole-document validation, the revision counter, and conflict detection. Unaware of bytes-on-the-wire or encryption.
+- **Cipher layer** (`crypto::Cipher`): seals/opens a document's plaintext bytes into/from a self-describing envelope. Storage-agnostic — the same cipher works for any blob store.
+- **Blob layer** (`blob::BlobStore`): conditional byte-level `get`/`put` against `Precondition::IfAbsent`/`IfMatch`. `LocalFsBlobStore` synthesizes its ETag as a content hash under the existing lockfile; `S3BlobStore` uses the object store's native ETag; `InMemoryBlobStore` exists for fast offline tests.
+
+`GenericProvider` composes one `BlobStore` and one `Cipher`: local storage is the file blob store with an identity cipher, remote storage is the S3 blob store with the AEAD cipher. The opaque version a client reads/commits against remains the document revision, never the blob store's ETag — see ADR-0007 for why the two must stay independent. See `docs/envelope-format.md` for the cipher layer's on-disk byte format and ADR-0008 for the key-management design.
 
 ## 6. Synchronization and conflicts
 
@@ -114,7 +124,9 @@ Export is a future client capability. Exporters read the native domain model and
 
 ## 10. Security and configuration
 
-Each client uses user-configured storage credentials. Credentials are stored through the platform’s secure credential facility, not in the synchronized JSON document. Encryption is a storage-provider configuration option. The initial concept does not mandate application-level encryption, but the provider boundary should permit an encryption wrapper later.
+Each client uses user-configured storage credentials. Credentials are stored through the platform's secure credential facility, not in the synchronized JSON document.
+
+For remote storage, client-side envelope encryption is mandatory, not optional (ADR-0008): a randomly generated master key encrypts the document; the master key is itself wrapped under a key derived from the user's passphrase via Argon2id, and the wrapped copy travels inside the stored object. The storage provider never sees plaintext, the passphrase, or the master key. Local filesystem storage is unaffected — it composes the same document/blob layering with an identity cipher (§5).
 
 ## 11. Explicit non-goals
 
@@ -129,9 +141,10 @@ Each client uses user-configured storage credentials. Credentials are stored thr
 
 ## 12. Open design questions for implementation
 
-- Exact remote object-storage provider and credential mechanism.
-- Concrete lock/conditional-write protocol for that provider.
+- ~~Exact remote object-storage provider and credential mechanism.~~ Resolved: S3-compatible object storage with AWS-standard credential sourcing (env vars, shared credentials file, named profile); see ADR-0007.
+- ~~Concrete lock/conditional-write protocol for that provider.~~ Resolved: native conditional writes only (`If-Absent`/`If-Match`), no lease/lock object; a backend lacking them is rejected. See ADR-0007.
 - Native JSON schema details and migration policy.
 - Shared-core language/runtime strategy.
 - Android background behavior and notification requirements.
 - Conflict export format and retention policy.
+- Passphrase rotation's home in the provider contract (document-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.

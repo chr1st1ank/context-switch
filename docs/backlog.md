@@ -28,18 +28,48 @@ interface and computes reports on demand (`architecture.md` §3, §8).
 
 ## Storage
 
-### S3 / remote object storage provider
+### S3 provider follow-ups
 
-Implement `StorageProvider` for S3-compatible object storage in
-`libs/contextswitch-core` so data can be synchronized across devices.
+The S3-compatible provider with client-side envelope encryption
+(`libs/contextswitch-core/src/{s3,crypto,blob,provider}.rs`) is implemented,
+but the PRD (`docs/prd-s3-provider.md`, now removed — see the ADRs and
+`docs/envelope-format.md` for its normative content) identified several
+behaviors that did not land in the first version:
 
-- Conditional writes via ETags / `If-None-Match`; may need a short
-  lease/lock mechanism (`architecture.md` §5)
-- Must pass the conformance suite in `src/conformance.rs`
-- Credentials come from client config (ADR-0006) and platform credential
-  facilities — never from the synced document
-- Resolves open questions in `architecture.md` §12: provider choice,
-  credential mechanism, lock/conditional-write protocol
+- **Retry policy** (stories 39-41): transient S3 failures (network errors,
+  5xx) are surfaced immediately as `StorageError::Unavailable` rather than
+  retried with bounded, jittered backoff; conflicts/auth failures should
+  continue to fail fast.
+- **Conditional-write probe at config time** (story 44): a backend that
+  cannot enforce `If-None-Match`/`If-Match` should be rejected when the
+  provider is opened, not discovered later as silent data loss. Needs a
+  cheap way to detect precondition support (e.g. a HEAD/probe write) before
+  trusting a non-AWS S3-compatible endpoint.
+- **`StorageError` kind discriminator for Python** (part of the error
+  taxonomy story): the CLI currently distinguishes error kinds only by
+  matching on message text; add a `kind`/`args` discriminator to the
+  PyO3-exposed exception so `cosw`'s transaction helper can branch reliably.
+- **Integration lane against a real S3-compatible endpoint** (story 56): the
+  conformance suite runs offline against `InMemoryBlobStore`/local files
+  only; add an opt-in test lane that can point `S3BlobStore` at a local
+  server (e.g. MinIO) or a real bucket.
+- **Explicit precondition-honoring assertion** (story 57): add a
+  conformance check that fails loudly if a configured backend silently
+  ignores `IfAbsent`/`IfMatch` instead of producing a vacuous pass.
+- **Passphrase rotation** (stories 46-47, the PRD's "Open decision"): no
+  document-layer operation exists yet to rotate the passphrase through the
+  normal conditional-commit path; `EnvelopeCipher::seal`'s `KeyState`
+  threading already supports adding a wrapped key (see
+  `key_rotation_and_preservation` in
+  `libs/contextswitch-core/tests/encrypted_provider.rs`), but nothing calls
+  it from `cosw`.
+- **OS secret-store support for passphrase sourcing** (real fix for story
+  8): read the passphrase from the platform secret store (Keychain /
+  Secret Service / Credential Manager) as a first-class option alongside
+  `passphrase_command`. Until this lands, `cosw` should at least reject a
+  `storage.passphrase` (or similarly named secret) key if present in the
+  config file, as an interim guard against a passphrase silently sitting
+  ignored in a file a user might commit.
 
 ## cosw CLI
 

@@ -8,5 +8,7 @@ This directory contains decisions that constrain the architecture and should be 
 - [ADR-0004: Document schema and local commit protocol](./0004-document-schema-and-local-commit-protocol.md)
 - [ADR-0005: cosw CLI command surface](./0005-cosw-cli-command-surface.md)
 - [ADR-0006: cosw client config file](./0006-cosw-config-file.md)
+- [ADR-0007: S3-compatible remote storage provider](./0007-s3-remote-storage-provider.md)
+- [ADR-0008: Client-side envelope encryption and key management](./0008-envelope-encryption-and-key-management.md)
 
 These records are proposed until implementation validates the provider protocol and native schema.

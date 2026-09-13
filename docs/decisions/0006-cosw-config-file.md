@@ -118,3 +118,16 @@ for `get`/`set` subcommands later without breaking `cosw config`.
 - [x] `cosw config` works against missing and malformed files.
 - [x] Malformed/unknown/ mistyped values behave per the strictness rules.
 - [x] 95% coverage gate holds (`task check`).
+
+## Amendment (2026-09-13, see ADR-0007)
+
+The `[storage]` table gains a `provider` selector (`"local"` | `"s3"`) and,
+for `"s3"`, `bucket`, `region`, `prefix`, `endpoint`, `use_path_style`,
+`profile`, and `passphrase_command`. An unrecognized `provider` value is
+rejected with a message naming the valid options, per the original
+strictness rules above; unknown keys continue to warn-and-ignore rather
+than error, so an older client tolerates a config written by a newer one.
+No secret ever belongs in this file — `passphrase_command` names a command
+to *run*, never a literal secret — and rejecting an inline secret key
+outright is tracked as an interim guard in `docs/backlog.md` pending a
+platform secret-store integration.

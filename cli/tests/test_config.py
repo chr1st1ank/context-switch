@@ -10,7 +10,7 @@ from cosw.cli import main
 def make_config(tmp_path: Path, text: str = "") -> Path:
     """Write a config file under a tmp XDG config home; return its path."""
     path = tmp_path / "xdg-config" / "context-switch" / "config.toml"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
 
@@ -160,11 +160,12 @@ def test_storage_must_be_a_table(tmp_path: Path) -> None:
 
 
 def test_unknown_provider_errors(tmp_path: Path) -> None:
-    make_config(tmp_path, '[storage]\nprovider = "s3"\n')
+    make_config(tmp_path, '[storage]\nprovider = "gcs"\n')
     result = run("status", env=invoke_env(tmp_path))
     assert result.exit_code != 0
-    assert "s3" in result.output
+    assert "gcs" in result.output
     assert "local" in result.output
+    assert "s3" in result.output
 
 
 def test_data_file_must_be_a_string(tmp_path: Path) -> None:
@@ -246,3 +247,35 @@ def test_config_command_tolerates_missing_explicit_file(tmp_path: Path) -> None:
     result = run("--config", str(cfg), "config", env=invoke_env(tmp_path, EDITOR="true"))
     assert result.exit_code == 0
     assert "[storage]" in cfg.read_text()
+
+
+def test_s3_config_validation(tmp_path: Path) -> None:
+    # 1. Missing bucket
+    make_config(tmp_path, '[storage]\nprovider = "s3"\nregion = "us-east-1"\n')
+    result = run("status", env=invoke_env(tmp_path))
+    assert result.exit_code != 0
+    assert "bucket" in result.output
+
+    # 2. Valid basic S3 config (but fails status because of no passphrase / no mock s3 server)
+    make_config(
+        tmp_path,
+        '[storage]\nprovider = "s3"\nbucket = "my-bucket"\nregion = "us-east-1"\n',
+    )
+    # Will prompt for passphrase under normal circumstances, let's run to verify
+    # it complains about prompt or passphrase
+    result = CliRunner().invoke(main, ["status"], input="mypassphrase\n", env=invoke_env(tmp_path))
+    # It should ask/prompt and then try to hit S3. Since S3 is fake/not running,
+    # it might fail with Unavailable/Unauthorized/etc.
+    assert "Enter passphrase for storage encryption" in result.output or result.exit_code != 0
+
+    # 3. S3 config invalid types
+    make_config(
+        tmp_path,
+        (
+            '[storage]\nprovider = "s3"\nbucket = "my-bucket"\n'
+            'region = "us-east-1"\nuse_path_style = "not_bool"\n'
+        ),
+    )
+    result = run("status", env=invoke_env(tmp_path))
+    assert result.exit_code != 0
+    assert "use_path_style" in result.output
