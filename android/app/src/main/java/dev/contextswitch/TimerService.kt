@@ -35,7 +35,7 @@ class TimerService : Service() {
         }
 
         fun stop(context: Context) {
-            context.startService(Intent(context, TimerService::class.java).setAction(ACTION_STOP))
+            context.stopService(Intent(context, TimerService::class.java))
         }
     }
 
@@ -44,7 +44,8 @@ class TimerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                (application as CoswApp).logbook.stop()
+                val logbook = (application as CoswApp).logbook
+                if (logbook.hasActiveTimer) logbook.stop()
                 stopSelf()
             }
             else -> {
