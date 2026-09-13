@@ -7,6 +7,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
 import kotlinx.coroutines.delay
@@ -53,7 +55,10 @@ fun TimerScreen(store: LogbookStore) {
             }
         }
 
-        Text("Project", style = MaterialTheme.typography.labelLarge)
+        Column {
+            Text("📁 Project", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = projectId == null, onClick = { projectId = null }, label = { Text("unassigned") })
             projects.forEach { p ->
@@ -67,7 +72,10 @@ fun TimerScreen(store: LogbookStore) {
         }
 
         if (tags.isNotEmpty()) {
-            Text("Tags", style = MaterialTheme.typography.labelLarge)
+            Column {
+                Text("🏷️ Tags", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 tags.forEach { t ->
                     FilterChip(
@@ -80,12 +88,20 @@ fun TimerScreen(store: LogbookStore) {
         }
 
         Spacer(Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (active == null) {
-                Button(onClick = { store.start(projectId, tagIds.toList()) }) { Text("Start") }
-            } else {
-                Button(onClick = { store.switchTo(projectId, tagIds.toList()) }) { Text("Switch") }
-                OutlinedButton(onClick = { store.stop() }) { Text("Stop") }
+        if (active == null) {
+            Button(
+                onClick = { store.start(projectId, tagIds.toList()) },
+                modifier = Modifier.fillMaxWidth().height(64.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+            ) { Text("Start", style = MaterialTheme.typography.titleLarge) }
+        } else {
+            Button(
+                onClick = { store.stop() },
+                modifier = Modifier.fillMaxWidth().height(64.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+            ) { Text("Stop", style = MaterialTheme.typography.titleLarge) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                OutlinedButton(onClick = { store.switchTo(projectId, tagIds.toList()) }) { Text("Switch") }
                 TextButton(onClick = { store.cancel() }) { Text("Cancel") }
             }
         }

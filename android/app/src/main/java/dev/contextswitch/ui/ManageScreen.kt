@@ -1,13 +1,16 @@
 package dev.contextswitch.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
 
@@ -19,14 +22,15 @@ fun ManageScreen(store: LogbookStore) {
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Projects") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Tags") })
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("📁 Projects") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("🏷️ Tags") })
         }
         LazyColumn(Modifier.weight(1f)) {
             if (tab == 0) {
                 items(snap?.projects.orEmpty(), key = { it.id }) { p ->
                     ManageRow(
                         name = p.name,
+                        color = projectColor(p.id),
                         archived = p.archived,
                         onRename = { store.renameProject(p.id, it) },
                         onArchive = { store.setProjectArchived(p.id, !p.archived) },
@@ -68,9 +72,12 @@ fun ManageScreen(store: LogbookStore) {
 }
 
 @Composable
-private fun ManageRow(name: String, archived: Boolean, onRename: (String) -> Unit, onArchive: () -> Unit) {
+private fun ManageRow(name: String, color: Color? = null, archived: Boolean, onRename: (String) -> Unit, onArchive: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
     ListItem(
+        leadingContent = color?.let { c ->
+            { Box(Modifier.size(12.dp).background(c, CircleShape)) }
+        },
         headlineContent = { Text(if (archived) "$name (archived)" else name) },
         trailingContent = {
             Row {
