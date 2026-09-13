@@ -9,11 +9,16 @@
 //!   must pass.
 //!
 //! The same types and rules are exposed to Python through the
-//! `contextswitch_core` extension module.
+//! `contextswitch_core` extension module when the `python` feature
+//! (on by default) is enabled; other FFI consumers such as the UniFFI
+//! Android bindings build with `default-features = false`.
 
+#[cfg(feature = "python")]
 use crate::crypto::Cipher;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn decrypt_envelope(envelope: Vec<u8>, passphrase: String) -> PyResult<String> {
     let cipher = crate::crypto::EnvelopeCipher;
@@ -31,6 +36,7 @@ fn decrypt_envelope(envelope: Vec<u8>, passphrase: String) -> PyResult<String> {
 /// The counterpart to [`decrypt_envelope`]; exposed mainly so Python tests
 /// (and disaster-recovery tooling) can construct envelopes without a
 /// network round trip through `S3Provider`.
+#[cfg(feature = "python")]
 #[pyfunction]
 fn encrypt_envelope(plaintext: String, passphrase: String) -> PyResult<Vec<u8>> {
     let cipher = crate::crypto::EnvelopeCipher;
@@ -48,6 +54,7 @@ pub mod s3;
 pub mod storage;
 
 /// Python exception types raised by the bindings.
+#[cfg(feature = "python")]
 pub mod exceptions {
     use pyo3::create_exception;
     use pyo3::exceptions::PyException;
@@ -67,6 +74,7 @@ pub mod exceptions {
 }
 
 /// Python module initialization.
+#[cfg(feature = "python")]
 #[pymodule]
 fn contextswitch_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<domain::Project>()?;

@@ -6,16 +6,21 @@ starting an item — significant work may warrant a new ADR first.
 
 ## Clients
 
-### Android app — basic time tracking
+### Android app — follow-ups
 
-Scaffold the native Android app in `android/` (currently a README stub).
+The Kotlin/UniFFI app scaffold landed (ADR-0009): timer lifecycle, span
+log/editing, project/tag management, S3 settings, and a foreground-service
+timer notification. Remaining:
 
-- Timer lifecycle: start, stop, switch, status
-- Project/tag selection from cached data
-- Storage provider integration — reuse the Rust core via FFI or implement
-  the provider contract natively (see `libs/contextswitch-core`)
-- Follow-ups: offline queueing of timer actions, background sync,
-  notification/background behavior (open question, `architecture.md` §12)
+- Keystore-wrapped credential storage (currently app-private
+  SharedPreferences; `security-crypto` is deprecated — pick a maintained
+  approach)
+- Offline queueing of timer actions (architecture §7) — reads already work
+  from the cached snapshot
+- Background sync / conflict UX beyond surfacing `MobileError.Conflict`
+- Play Store signing/distribution (currently sideloaded debug APK)
+- Graceful handling of a timer that was started/stopped remotely (currently error message)
+- Latency optimization of sync actions
 
 ### Dashboard web app
 

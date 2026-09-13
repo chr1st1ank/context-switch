@@ -8,12 +8,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Utc};
+#[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+#[cfg(feature = "python")]
 use crate::exceptions;
 
 /// The only schema version this library reads and writes.
@@ -61,21 +64,25 @@ pub enum DomainError {
     UnsupportedSchemaVersion(u32),
 }
 
+#[cfg(feature = "python")]
 impl From<DomainError> for PyErr {
     fn from(e: DomainError) -> PyErr {
         exceptions::DomainError::new_err(e.to_string())
     }
 }
 
+#[cfg(feature = "python")]
 fn parse_uuid(value: &str) -> PyResult<Uuid> {
     Uuid::parse_str(value)
         .map_err(|e| PyValueError::new_err(format!("invalid UUID {value:?}: {e}")))
 }
 
+#[cfg(feature = "python")]
 fn parse_uuid_opt(value: Option<String>) -> PyResult<Option<Uuid>> {
     value.as_deref().map(parse_uuid).transpose()
 }
 
+#[cfg(feature = "python")]
 fn parse_uuid_vec(values: Option<Vec<String>>) -> PyResult<Vec<Uuid>> {
     values
         .unwrap_or_default()
@@ -85,20 +92,16 @@ fn parse_uuid_vec(values: Option<Vec<String>>) -> PyResult<Vec<Uuid>> {
 }
 
 /// A named work context to which time can be assigned.
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     /// Stable identity; never reused.
     pub id: Uuid,
     /// Display name; case-insensitively unique within a logbook.
-    #[pyo3(get)]
     pub name: String,
     /// Archived projects are hidden from pickers but keep their history.
-    #[pyo3(get)]
     pub archived: bool,
-    #[pyo3(get)]
     pub created_at: DateTime<Utc>,
-    #[pyo3(get)]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -114,7 +117,8 @@ impl Project {
     }
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl Project {
     #[new]
     fn py_new(name: String) -> Self {
@@ -124,6 +128,26 @@ impl Project {
     #[getter]
     fn id(&self) -> String {
         self.id.to_string()
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[getter]
+    fn archived(&self) -> bool {
+        self.archived
+    }
+
+    #[getter]
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+
+    #[getter]
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
     }
 
     fn __repr__(&self) -> String {
@@ -135,20 +159,16 @@ impl Project {
 }
 
 /// A reusable label that can be attached to a span.
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     /// Stable identity; never reused.
     pub id: Uuid,
     /// Display name; case-insensitively unique within a logbook.
-    #[pyo3(get)]
     pub name: String,
     /// Archived tags are hidden from pickers but keep their history.
-    #[pyo3(get)]
     pub archived: bool,
-    #[pyo3(get)]
     pub created_at: DateTime<Utc>,
-    #[pyo3(get)]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -164,7 +184,8 @@ impl Tag {
     }
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl Tag {
     #[new]
     fn py_new(name: String) -> Self {
@@ -176,6 +197,26 @@ impl Tag {
         self.id.to_string()
     }
 
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[getter]
+    fn archived(&self) -> bool {
+        self.archived
+    }
+
+    #[getter]
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+
+    #[getter]
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Tag(id={}, name={:?}, archived={})",
@@ -185,21 +226,17 @@ impl Tag {
 }
 
 /// A mutable record of a period during which the user records time.
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Span {
     /// Stable identity; never reused.
     pub id: Uuid,
-    #[pyo3(get)]
     pub started_at: DateTime<Utc>,
-    #[pyo3(get)]
     pub stopped_at: Option<DateTime<Utc>>,
     /// Assigned project; `None` is unassigned time awaiting classification.
     pub project_id: Option<Uuid>,
     pub tag_ids: Vec<Uuid>,
-    #[pyo3(get)]
     pub created_at: DateTime<Utc>,
-    #[pyo3(get)]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -234,7 +271,8 @@ fn intervals_overlap(
     a_end.is_none_or(|end| b_start < end) && b_end.is_none_or(|end| a_start < end)
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl Span {
     #[new]
     #[pyo3(signature = (started_at, project_id=None, tag_ids=None))]
@@ -270,6 +308,26 @@ impl Span {
         self.is_active()
     }
 
+    #[getter]
+    fn started_at(&self) -> DateTime<Utc> {
+        self.started_at
+    }
+
+    #[getter]
+    fn stopped_at(&self) -> Option<DateTime<Utc>> {
+        self.stopped_at
+    }
+
+    #[getter]
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+
+    #[getter]
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Span(id={}, started_at={}, stopped_at={:?})",
@@ -287,13 +345,11 @@ impl Span {
 /// changes as part of a switch (old span stopped, new one started at the same
 /// instant) or a stop (cleared to `None`). A logbook where it disagrees with
 /// the spans is corrupt; [`Logbook::validate`] detects that.
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Logbook {
-    #[pyo3(get)]
     pub schema_version: u32,
     /// Monotonic commit counter; owned by the storage provider.
-    #[pyo3(get)]
     pub revision: u64,
     pub active_span_id: Option<Uuid>,
     pub projects: BTreeMap<Uuid, Project>,
@@ -734,7 +790,8 @@ fn find_duplicate<'a>(names: impl Iterator<Item = &'a String>) -> Option<String>
     None
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl Logbook {
     #[new]
     fn py_new() -> Self {
@@ -744,6 +801,16 @@ impl Logbook {
     #[getter]
     fn active_span_id(&self) -> Option<String> {
         self.active_span_id.map(|id| id.to_string())
+    }
+
+    #[getter]
+    fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    #[getter]
+    fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The span currently recording time, if any.

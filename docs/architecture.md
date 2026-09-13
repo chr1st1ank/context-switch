@@ -141,10 +141,6 @@ For remote storage, client-side envelope encryption is mandatory, not optional (
 
 ## 12. Open design questions for implementation
 
-- ~~Exact remote object-storage provider and credential mechanism.~~ Resolved: S3-compatible object storage with AWS-standard credential sourcing (env vars, shared credentials file, named profile); see ADR-0007.
-- ~~Concrete lock/conditional-write protocol for that provider.~~ Resolved: native conditional writes only (`If-Absent`/`If-Match`), no lease/lock object; a backend lacking them is rejected. See ADR-0007.
 - Native JSON schema details and migration policy.
-- Shared-core language/runtime strategy.
-- Android background behavior and notification requirements.
 - Conflict export format and retention policy.
 - Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.

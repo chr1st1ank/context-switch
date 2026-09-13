@@ -1,17 +1,38 @@
 version: "3"
 
+vars:
+  # Gradle 8.10 doesn't run on JDK 26; prefer 21, then 17, then JAVA_HOME.
+  JAVA:
+    sh: for j in /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/java-17-openjdk; do [ -d "$j" ] && echo "$j" && break; done
+  SDK:
+    sh: echo "${ANDROID_HOME:-/opt/android-sdk}"
+
+env:
+  JAVA_HOME: "{{.JAVA}}"
+  ANDROID_HOME: "{{.SDK}}"
+
 tasks:
-  build:
-    desc: Build Android app
+  rust:
+    desc: Build the Rust core for Android and generate Kotlin bindings
     cmds:
-      - echo "Android build not yet configured"
+      - bash build-rust.sh
+
+  build:
+    desc: Build debug APK (runs rust task first)
+    cmds:
+      - ./gradlew assembleDebug
+
+  install:
+    desc: Build and install on a connected device via adb
+    cmds:
+      - ./gradlew installDebug
 
   test:
-    desc: Run Android tests
+    desc: Run unit tests
     cmds:
-      - echo "Android tests not yet configured"
+      - ./gradlew test
 
   lint:
-    desc: Lint Android code
+    desc: Lint Kotlin/Gradle code
     cmds:
-      - echo "Android linting not yet configured"
+      - ./gradlew lint

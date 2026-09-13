@@ -8,6 +8,7 @@ dependencies = ["cosw", "contextswitch-core"]
 
 [tool.uv.workspace]
 members = ["cli", "libs/*"]
+exclude = ["libs/contextswitch-uniffi"]
 
 [tool.uv.sources]
 cosw = { workspace = true }

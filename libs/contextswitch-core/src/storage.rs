@@ -13,14 +13,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use thiserror::Error;
 
 use crate::blob::{BlobStore, LocalFsBlobStore};
-use crate::crypto::{EnvelopeCipher, IdentityCipher};
+#[cfg(feature = "python")]
+use crate::crypto::EnvelopeCipher;
+use crate::crypto::IdentityCipher;
 use crate::domain::{DomainError, Logbook};
+#[cfg(feature = "python")]
 use crate::exceptions;
 use crate::provider::GenericProvider;
+#[cfg(feature = "python")]
 use crate::s3::S3BlobStore;
 
 /// How long a commit waits for the lock before giving up.
@@ -61,6 +66,7 @@ pub enum StorageError {
     Unavailable(String),
 }
 
+#[cfg(feature = "python")]
 impl From<StorageError> for PyErr {
     fn from(e: StorageError) -> PyErr {
         exceptions::StorageError::new_err(e.to_string())
@@ -69,15 +75,27 @@ impl From<StorageError> for PyErr {
 
 /// A read of canonical data together with the version it was observed at.
 /// Pass `version` back to [`StorageProvider::commit`] for a conditional write.
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone)]
 pub struct StorageSnapshot {
     /// Opaque version string; a logbook revision for local files, an ETag
     /// for remote object storage.
-    #[pyo3(get)]
     pub version: String,
-    #[pyo3(get)]
     pub logbook: Logbook,
+}
+
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
+impl StorageSnapshot {
+    #[getter]
+    fn version(&self) -> String {
+        self.version.clone()
+    }
+
+    #[getter]
+    fn logbook(&self) -> Logbook {
+        self.logbook.clone()
+    }
 }
 
 /// The common contract for synchronized storage.
@@ -111,7 +129,7 @@ impl Drop for LockGuard {
 /// the lock, so a stale commit always fails with [`StorageError::Conflict`].
 /// A lockfile abandoned by a crashed process is reclaimed after
 /// [`STALE_LOCK_AGE`].
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 pub struct LocalFsProvider {
     inner: GenericProvider,
     path: PathBuf,
@@ -174,7 +192,8 @@ impl StorageProvider for LocalFsProvider {
     }
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl LocalFsProvider {
     #[new]
     fn py_new(path: PathBuf) -> PyResult<Self> {
@@ -220,14 +239,21 @@ pub fn sibling_path(path: &Path, extension: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// S3-compatible storage provider with mandatory client-side envelope encryption.
-#[pyclass]
+/// S3-compatible storage provider with mandatory client-side envelope
+/// encryption. Its constructor sources credentials from the AWS-standard
+/// mechanisms (env vars / `~/.aws/credentials`), so it is only exported
+/// through the Python bindings; other FFI consumers compose
+/// [`GenericProvider`](crate::provider::GenericProvider) with
+/// [`S3BlobStore`](crate::s3::S3BlobStore)`::with_credentials` directly.
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pyclass)]
 pub struct S3Provider {
     inner: GenericProvider,
     location_url: String,
 }
 
-#[pymethods]
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
 impl S3Provider {
     #[new]
     #[pyo3(signature = (bucket, region, prefix, passphrase, endpoint=None, use_path_style=false, profile=None))]
@@ -287,6 +313,7 @@ impl S3Provider {
     }
 }
 
+#[cfg(feature = "python")]
 impl StorageProvider for S3Provider {
     fn read(&self) -> Result<StorageSnapshot, StorageError> {
         self.inner.read()

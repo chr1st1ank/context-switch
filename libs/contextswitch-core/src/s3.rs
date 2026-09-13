@@ -242,6 +242,9 @@ pub struct S3BlobStore {
     endpoint: String,
     use_path_style: bool,
     profile: Option<String>,
+    /// Explicitly injected credentials; when set, env/`~/.aws` loading is
+    /// bypassed (used by clients like Android where neither exists).
+    credentials: Option<AwsCredentials>,
 }
 
 impl S3BlobStore {
@@ -270,6 +273,29 @@ impl S3BlobStore {
             endpoint,
             use_path_style,
             profile,
+            credentials: None,
+        }
+    }
+
+    /// Like [`S3BlobStore::new`] but with explicit credentials instead of a
+    /// profile looked up from the environment or `~/.aws/credentials`.
+    pub fn with_credentials(
+        bucket: String,
+        region: String,
+        prefix: String,
+        endpoint: Option<String>,
+        use_path_style: bool,
+        credentials: AwsCredentials,
+    ) -> Self {
+        let mut store = Self::new(bucket, region, prefix, endpoint, use_path_style, None);
+        store.credentials = Some(credentials);
+        store
+    }
+
+    fn credentials(&self) -> Result<AwsCredentials, StorageError> {
+        match &self.credentials {
+            Some(creds) => Ok(creds.clone()),
+            None => load_aws_credentials(self.profile.as_deref()),
         }
     }
 
@@ -301,7 +327,7 @@ impl S3BlobStore {
 
 impl BlobStore for S3BlobStore {
     fn get(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
-        let creds = load_aws_credentials(self.profile.as_deref())?;
+        let creds = self.credentials()?;
         let (url, path, host) = self.resolve_url_and_host();
 
         let now = Utc::now();
@@ -369,7 +395,7 @@ impl BlobStore for S3BlobStore {
     }
 
     fn put(&self, bytes: &[u8], cond: Precondition) -> Result<String, StorageError> {
-        let creds = load_aws_credentials(self.profile.as_deref())?;
+        let creds = self.credentials()?;
         let (url, path, host) = self.resolve_url_and_host();
 
         let now = Utc::now();

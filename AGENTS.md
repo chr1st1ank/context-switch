@@ -24,20 +24,24 @@ context-switch/
 │   ├── tests/
 │   ├── pyproject.toml
 │   └── Taskfile.yml
-├── android/                      # Android client
-│   ├── README.md
+├── android/                      # Android client (Kotlin/Compose over the Rust core)
+│   ├── app/                      # Gradle app module (UI, TimerService, settings)
+│   ├── build-rust.sh             # cargo-ndk + UniFFI Kotlin binding generation
 │   └── Taskfile.yml
 ├── libs/
-│   └── contextswitch-core/       # Shared domain model and storage interface (Rust)
+│   ├── contextswitch-core/       # Shared domain model and storage interface (Rust)
 │       ├── src/
-│       │   ├── lib.rs            # PyO3 module entry point
+│       │   ├── lib.rs            # PyO3 module entry point (`python` feature)
 │       │   ├── domain.rs         # Span, Project, Tag, Logbook types
 │       │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
+│       │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
+│       │   ├── s3.rs             # S3BlobStore + SigV4 signing
 │       │   └── conformance.rs    # Provider conformance test suite
 │       ├── python/               # Python type stubs
-│       ├── Cargo.toml            # Rust dependencies
+│       ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
 │       ├── pyproject.toml        # Python build config (maturin)
 │       └── Taskfile.yml
+│   └── contextswitch-uniffi/     # UniFFI bindings for the Android client (ADR-0009)
 ├── docs/
 │   ├── architecture.md           # System design
 │   ├── design.md                 # Implementation details (TBD)

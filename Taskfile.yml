@@ -50,7 +50,7 @@ tasks:
   stats:
     desc: Show lines-of-code statistics
     cmds:
-      - cloc --vcs=git --quiet . | tail -n +2
+      - cloc --vcs=git --quiet --hide-rate . | tail -n +2
 
   changelog:
     desc: Preview unreleased changelog

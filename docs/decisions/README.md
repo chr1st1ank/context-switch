@@ -10,5 +10,6 @@ This directory contains decisions that constrain the architecture and should be 
 - [ADR-0006: cosw client config file](./0006-cosw-config-file.md)
 - [ADR-0007: S3-compatible remote storage provider](./0007-s3-remote-storage-provider.md)
 - [ADR-0008: Client-side envelope encryption and key management](./0008-envelope-encryption-and-key-management.md)
+- [ADR-0009: Android client — Kotlin shell over the Rust core via UniFFI](./0009-android-client-architecture.md)
 
 These records are proposed until implementation validates the provider protocol and native schema.

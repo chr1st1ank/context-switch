@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["libs/contextswitch-core"]
+members = ["libs/contextswitch-core", "libs/contextswitch-uniffi"]
