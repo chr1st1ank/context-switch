@@ -39,7 +39,7 @@ tasks:
         ADB="{{.SDK}}/platform-tools/adb"
         EMULATOR="{{.SDK}}/emulator/emulator"
         AVDMANAGER="{{.SDK}}/cmdline-tools/latest/bin/avdmanager"
-        
+
         if ! "$AVDMANAGER" list avd | grep -q "Name: {{.AVD}}"; then
           echo "no" | "$AVDMANAGER" create avd -n "{{.AVD}}" -k "{{.IMAGE}}" -d "pixel_7"
         fi
