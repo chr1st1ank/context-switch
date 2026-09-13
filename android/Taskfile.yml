@@ -27,6 +27,32 @@ tasks:
     cmds:
       - ./gradlew installDebug
 
+  preview:
+    desc: Boot the emulator (creating the AVD if needed), install, and launch the app
+    deps: [rust]
+    vars:
+      AVD: pixel7
+      IMAGE: system-images;android-35;google_apis;x86_64
+    cmds:
+      - |
+        set -euo pipefail
+        ADB="{{.SDK}}/platform-tools/adb"
+        EMULATOR="{{.SDK}}/emulator/emulator"
+        AVDMANAGER="{{.SDK}}/cmdline-tools/latest/bin/avdmanager"
+
+        if ! "$AVDMANAGER" list avd | grep -q "Name: {{.AVD}}"; then
+          echo "no" | "$AVDMANAGER" create avd -n "{{.AVD}}" -k "{{.IMAGE}}" -d "pixel_7"
+        fi
+
+        if ! "$ADB" devices | grep -q "emulator-"; then
+          "$EMULATOR" -avd "{{.AVD}}" >/dev/null 2>&1 &
+          "$ADB" wait-for-device
+          while [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; do sleep 2; done
+        fi
+
+        JAVA_HOME="{{.JAVA}}" ./gradlew installDebug
+        "$ADB" shell am start -n dev.contextswitch/.MainActivity
+
   test:
     desc: Run unit tests
     cmds:
