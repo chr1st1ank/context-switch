@@ -1,6 +1,8 @@
 package dev.contextswitch.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,7 +45,7 @@ fun TimerScreen(store: LogbookStore) {
             val projectName = active.projectId?.let { pid -> snap?.projects?.firstOrNull { it.id == pid }?.name } ?: "(unassigned)"
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(projectName, style = MaterialTheme.typography.titleLarge)
+                    Text(projectName, style = MaterialTheme.typography.titleLarge, color = projectColor(active.projectId))
                     Text(fmtDuration(elapsed), style = MaterialTheme.typography.displaySmall)
                     val tagNames = active.tagIds.mapNotNull { tid -> snap?.tags?.firstOrNull { it.id == tid }?.name }
                     if (tagNames.isNotEmpty()) Text(tagNames.joinToString(" · ", prefix = "+"))
@@ -55,7 +57,12 @@ fun TimerScreen(store: LogbookStore) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = projectId == null, onClick = { projectId = null }, label = { Text("unassigned") })
             projects.forEach { p ->
-                FilterChip(selected = projectId == p.id, onClick = { projectId = p.id }, label = { Text(p.name) })
+                FilterChip(
+                    selected = projectId == p.id,
+                    onClick = { projectId = p.id },
+                    label = { Text(p.name) },
+                    leadingIcon = { Box(Modifier.size(10.dp).background(projectColor(p.id), CircleShape)) },
+                )
             }
         }
 

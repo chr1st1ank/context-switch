@@ -39,19 +39,35 @@ tasks:
         ADB="{{.SDK}}/platform-tools/adb"
         EMULATOR="{{.SDK}}/emulator/emulator"
         AVDMANAGER="{{.SDK}}/cmdline-tools/latest/bin/avdmanager"
-
+        
         if ! "$AVDMANAGER" list avd | grep -q "Name: {{.AVD}}"; then
           echo "no" | "$AVDMANAGER" create avd -n "{{.AVD}}" -k "{{.IMAGE}}" -d "pixel_7"
         fi
 
         if ! "$ADB" devices | grep -q "emulator-"; then
-          "$EMULATOR" -avd "{{.AVD}}" >/dev/null 2>&1 &
+          "$EMULATOR" -avd "{{.AVD}}" -gpu swiftshader_indirect -memory 4096 >/dev/null 2>&1 &
           "$ADB" wait-for-device
           while [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; do sleep 2; done
         fi
 
         JAVA_HOME="{{.JAVA}}" ./gradlew installDebug
         "$ADB" shell am start -n dev.contextswitch/.MainActivity
+
+  stop-preview:
+    desc: Stop the emulator
+    vars:
+      AVD: pixel7
+      IMAGE: system-images;android-35;google_apis;x86_64
+    cmds:
+      - |
+        set -euo pipefail
+        ADB="{{.SDK}}/platform-tools/adb"
+        EMULATOR="{{.SDK}}/emulator/emulator"
+        AVDMANAGER="{{.SDK}}/cmdline-tools/latest/bin/avdmanager"
+
+        if "$AVDMANAGER" list avd | grep -q "Name: {{.AVD}}"; then
+          "$ADB" shell reboot -p
+        fi
 
   test:
     desc: Run unit tests

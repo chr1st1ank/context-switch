@@ -13,6 +13,11 @@ fun parseTime(s: String): OffsetDateTime = OffsetDateTime.parse(s)
 
 fun fmtLocal(s: String): String = parseTime(s).atZoneSameInstant(localZone).format(fmtDateTime)
 
+fun fmtLocalTime(s: String): String =
+    parseTime(s).atZoneSameInstant(localZone).format(DateTimeFormatter.ofLocalizedTime(java.time.format.FormatStyle.SHORT))
+
+fun localDate(s: String): java.time.LocalDate = parseTime(s).atZoneSameInstant(localZone).toLocalDate()
+
 fun fmtDuration(seconds: Long): String {
     val d = Duration.ofSeconds(seconds.coerceAtLeast(0))
     val h = d.toHours()
