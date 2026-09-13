@@ -25,7 +25,7 @@ record resolves them and the blob-level contract used to implement them.
   stale-lease reclamation is exactly the complexity a conditional-write
   backend avoids.
 - Credentials must reuse a mechanism users already have, not a bespoke one.
-- The document layer above the provider contract must not change.
+- The logbook layer above the provider contract must not change.
 
 ## Considered Options
 
@@ -40,7 +40,7 @@ record resolves them and the blob-level contract used to implement them.
 
 ### Blob-level contract
 
-A new layer beneath the document layer, so encryption (ADR-0008) and
+A new layer beneath the logbook layer, so encryption (ADR-0008) and
 storage backend are independent axes of composition:
 
 ```rust
@@ -61,9 +61,9 @@ precondition semantics to the layer above. `S3BlobStore` uses the object
 store's native ETag via `If-Match`/`If-None-Match`. `InMemoryBlobStore`
 exists purely for fast, offline tests.
 
-**Version identity stays the document revision, not the ETag.** The ETag is
+**Version identity stays the logbook revision, not the ETag.** The ETag is
 used only inside a provider's own compare-and-swap; the version a client
-reads and commits against is always the document's `revision` counter
+reads and commits against is always the logbook's `revision` counter
 (ADR-0004). This keeps conflict messages human-meaningful and keeps the
 Android reimplementation identical between backends.
 
@@ -74,8 +74,8 @@ time is not yet implemented — see `docs/backlog.md`.)
 
 **Object layout and bootstrap.** A single object per location, at a
 configurable key prefix, named `logbook.json` (see the domain glossary
-entry for "Logbook" in `CONTEXT.md`). No sibling lock or temporary objects.
-Absence reads as an empty document at revision zero; the first commit
+entry for "Logbook File" in `CONTEXT.md`). No sibling lock or temporary objects.
+Absence reads as an empty logbook at revision zero; the first commit
 creates the object with `IfAbsent`. Opening therefore performs no network
 write and needs no write permission until the first mutation.
 
@@ -85,7 +85,7 @@ Sourced from the standard AWS mechanisms only: `AWS_ACCESS_KEY_ID` /
 `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` environment variables first,
 then `~/.aws/credentials`, optionally scoped to a named profile from client
 config. No bespoke credential file or format. Credentials never appear in
-the synchronized document.
+the synchronized logbook.
 
 ### Request signing
 
@@ -132,7 +132,7 @@ path.
 - **Affected paths**: `libs/contextswitch-core/src/{blob,s3,provider,storage}.rs`;
   `cli/cosw/{config,core}.py`; conformance and encrypted-provider tests.
 - **Patterns to follow**: compose a `BlobStore` + `Cipher` into
-  `GenericProvider`; keep version identity as the document revision;
+  `GenericProvider`; keep version identity as the logbook revision;
   surface backend-specific failures through the shared `StorageError`
   taxonomy.
 - **Patterns to avoid**: leaking ETags as the client-visible version;
@@ -148,6 +148,6 @@ path.
 - [x] A backend lacking `If-Match` support (simulated by tampering the
   in-memory store's compare-and-swap) is caught as a `Conflict`, not a
   silent overwrite.
-- [x] Credentials are never written into the synchronized document.
+- [x] Credentials are never written into the synchronized logbook.
 - [ ] Transient network failures are retried with bounded backoff (not yet
   implemented; `docs/backlog.md`).

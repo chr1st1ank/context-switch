@@ -80,9 +80,9 @@ cosw [--data-file PATH] COMMAND ...
 
 ### Core mutations added for the CLI
 
-- `Document::add_span(started_at, stopped_at, project_id, tag_ids, at)` —
+- `Logbook::add_span(started_at, stopped_at, project_id, tag_ids, at)` —
   records completed time without requiring an idle timer.
-- `Document::remove_span(span_id)` — deletes a span; removing the active one
+- `Logbook::remove_span(span_id)` — deletes a span; removing the active one
   discards the timer and clears `active_span_id`.
 
 ### Deferred
@@ -112,7 +112,7 @@ cosw [--data-file PATH] COMMAND ...
 - **Patterns to follow**: commands are thin — `transact` reads a snapshot,
   applies one mutation, commits against the observed version; name and span
   resolution live in `cosw.core`; all timestamps come from `timeparse`.
-- **Patterns to avoid**: mutating the document outside `transact`; creating
+- **Patterns to avoid**: mutating the logbook outside `transact`; creating
   projects/tags from filter arguments; any second path that stops the active
   span.
 

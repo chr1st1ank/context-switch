@@ -8,7 +8,7 @@ other specification. The reference implementation is
 `libs/contextswitch-core/src/crypto.rs`.
 
 An envelope is opaque to the storage provider: the object stored in the
-bucket (the "logbook", see `CONTEXT.md`) is always exactly one envelope.
+bucket (the "logbook file", see `CONTEXT.md`) is always exactly one envelope.
 
 ## Layout
 
@@ -26,7 +26,7 @@ bucket (the "logbook", see `CONTEXT.md`) is always exactly one envelope.
 - **header** (`header_len` bytes): UTF-8 JSON, see "Header" below.
 - **payload_nonce** (24 bytes): the XChaCha20-Poly1305 nonce for the main
   payload.
-- **ciphertext** (remaining bytes): the AEAD-encrypted document JSON,
+- **ciphertext** (remaining bytes): the AEAD-encrypted logbook JSON,
   including its 16-byte authentication tag.
 
 The header bytes are used verbatim as the AEAD associated data for the main
@@ -69,7 +69,7 @@ downgrade or key-identity tampering must be detected, not honoured.
   wrap the master key most recently used to seal this envelope. Selects
   which wrapped-key entry to unwrap first; a reader may also attempt other
   entries with a passphrase it holds (multi-passphrase support at the
-  document layer is not yet implemented — see `docs/backlog.md`).
+  logbook layer is not yet implemented — see `docs/backlog.md`).
 - **reserved_compression**: reserved for a future compression method
   applied to the plaintext before encryption. Always `0` today; a reader
   must reject any non-zero value as unsupported rather than attempt to
@@ -114,7 +114,7 @@ downgrade or key-identity tampering must be detected, not honoured.
    equal to the raw header bytes (step 1's `header` slice, byte-for-byte,
    not a re-serialization of the parsed struct). An AEAD authentication
    failure here is also `StorageError::DecryptionFailed`.
-6. The resulting plaintext is the canonical document's UTF-8 JSON, exactly
+6. The resulting plaintext is the canonical logbook's UTF-8 JSON, exactly
    as defined in ADR-0004.
 
 ## Known-answer test vector
@@ -128,4 +128,4 @@ assertion; a reimplementation should be able to decode the same fixture
 independently as proof of byte-for-byte compatibility.
 
 If the envelope format ever changes, this vector must be regenerated
-deliberately (bump `version` and update this document), never silently.
+deliberately (bump `version` and update this logbook), never silently.

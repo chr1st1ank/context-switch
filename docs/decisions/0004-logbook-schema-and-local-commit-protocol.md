@@ -6,19 +6,19 @@ consulted: ""
 informed: ""
 ---
 
-# Document schema and local commit protocol
+# Logbook schema and local commit protocol
 
 ## Context and Problem Statement
 
 ADR-0003 chose a native versioned JSON format and ADR-0002 chose short
 conditional transactions. The cross-language contract still needed a concrete
-shape: the exact document fields, how the active timer is represented, which
+shape: the exact logbook fields, how the active timer is represented, which
 invariants a commit enforces, and how a filesystem provides atomic
 compare-and-write without a server.
 
 ## Decision Drivers
 
-- The document is the cross-language source of truth; Android will reimplement it.
+- The logbook is the cross-language source of truth; Android will reimplement it.
 - The one-active-timer invariant must be enforced by the commit, not by client
   convention.
 - Canonical data must never be silently repaired or overwritten.
@@ -35,7 +35,7 @@ compare-and-write without a server.
 
 ## Decision Outcome
 
-### Document schema (version 1)
+### Logbook schema (version 1)
 
 ```json
 {
@@ -57,7 +57,7 @@ compare-and-write without a server.
   `null` when no timer runs, and otherwise points at the unique span whose
   `stopped_at` is `null`. It only changes as part of a switch (old span
   stopped, new one started at the same instant) or a stop (cleared to
-  `null`). A document where it disagrees with the spans is corrupt — it is
+  `null`). A logbook where it disagrees with the spans is corrupt — it is
   never silently repaired.
 - Projects and tags are never hard-deleted; `archived` hides them from
   pickers while preserving history. Names are case-insensitively unique,
@@ -65,7 +65,7 @@ compare-and-write without a server.
 
 ### Commit validation
 
-Every commit validates the whole document: schema version, `active_span_id`
+Every commit validates the whole logbook: schema version, `active_span_id`
 consistency, referential integrity (`project_id`/`tag_ids` exist),
 `started_at <= stopped_at`, non-overlapping spans (the active span is
 unbounded, so nothing may end after its start), and name uniqueness. Stopping the active span
@@ -77,12 +77,12 @@ offline captures replay faithfully.
 ### Local commit protocol
 
 `LocalFsProvider` is constructed with a file path and creates an empty v1
-document if absent. A commit:
+logbook if absent. A commit:
 
-1. validates the document;
+1. validates the logbook;
 2. acquires `<file>.lock` via `create_new`, retrying briefly (up to ~5 s) and
    reclaiming lockfiles older than ~30 s (abandoned by a crashed process);
-3. re-reads the stored document and fails with a conflict if its revision
+3. re-reads the stored logbook and fails with a conflict if its revision
    differs from the expected version;
 4. bumps `revision`, writes `<file>.tmp`, fsyncs, atomically renames over the
    data file, and fsyncs the directory;
@@ -123,19 +123,19 @@ overwritten.
 - [x] Two clients cannot commit two different active timers from the same
   observed version (conformance suite).
 - [x] A switch atomically stops the old span and starts the new one.
-- [x] A stale commit fails with a conflict; the stored document is unchanged.
+- [x] A stale commit fails with a conflict; the stored logbook is unchanged.
 - [x] A divergent `active_span_id` reads as corrupt.
 - [x] Locks are held only for the compare-and-write, never during edits.
 
 ## Amendment (2026-09-13, see ADR-0007)
 
 The local commit protocol described here is now implemented as a
-composition of a document layer (this ADR's validation and revision
+composition of a logbook layer (this ADR's validation and revision
 rules, unchanged) over a `LocalFsBlobStore` blob layer (ADR-0007) with an
 identity cipher. The lockfile, atomic rename, and stale-lock reclamation
 behavior described above is unchanged; it now lives in
 `blob::LocalFsBlobStore` rather than directly in `storage::LocalFsProvider`.
-`LocalFsProvider`'s own bootstrap (creating an empty document if none
+`LocalFsProvider`'s own bootstrap (creating an empty logbook if none
 exists) tolerates losing a first-write race to another process: the
 losing side's own `IfAbsent` put failing with a conflict is not surfaced
-as an error opening the provider, since the document exists either way.
+as an error opening the provider, since the logbook exists either way.

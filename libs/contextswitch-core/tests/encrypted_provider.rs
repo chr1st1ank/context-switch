@@ -46,9 +46,9 @@ fn wrong_passphrase_fails_decryption() {
     );
 
     let snap = provider_write.read().unwrap();
-    let mut doc = snap.document.clone();
-    doc.add_project("secret_project", at(0)).unwrap();
-    provider_write.commit(doc, &snap.version).unwrap();
+    let mut logbook = snap.logbook.clone();
+    logbook.add_project("secret_project", at(0)).unwrap();
+    provider_write.commit(logbook, &snap.version).unwrap();
 
     let provider_wrong = GenericProvider::new(blob_store, cipher, Some("wrong_pass".to_string()));
     assert!(matches!(
@@ -68,9 +68,9 @@ fn tampered_data_fails_decryption() {
     );
 
     let snap = provider.read().unwrap();
-    let mut doc = snap.document.clone();
-    doc.add_project("p1", at(0)).unwrap();
-    provider.commit(doc, &snap.version).unwrap();
+    let mut logbook = snap.logbook.clone();
+    logbook.add_project("p1", at(0)).unwrap();
+    provider.commit(logbook, &snap.version).unwrap();
 
     // Now corrupt the bytes in the blob store manually
     let mut data = blob_store.get().unwrap().unwrap();
@@ -103,9 +103,9 @@ fn header_tampering_fails_authentication() {
     );
 
     let snap = provider.read().unwrap();
-    let mut doc = snap.document.clone();
-    doc.add_project("p1", at(0)).unwrap();
-    provider.commit(doc, &snap.version).unwrap();
+    let mut logbook = snap.logbook.clone();
+    logbook.add_project("p1", at(0)).unwrap();
+    provider.commit(logbook, &snap.version).unwrap();
 
     // Now corrupt the JSON header bytes — specifically the derivation
     // salt, which is neither structurally validated nor used as a lookup
@@ -142,7 +142,7 @@ fn header_tampering_fails_authentication() {
 /// so committing from one device can never lock out another." A second
 /// wrapped copy of the master key (as rotation, story 46-48, would add) is
 /// injected directly into the `KeyState` — full rotation is not yet wired
-/// into the document layer (see the PRD's "Open decision" and
+/// into the logbook layer (see the PRD's "Open decision" and
 /// `docs/backlog.md`), but the preservation property `seal` must honor is
 /// independent of how a second key got there.
 #[test]

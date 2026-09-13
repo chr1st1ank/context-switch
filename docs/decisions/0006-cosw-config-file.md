@@ -20,7 +20,7 @@ of accreting ad hoc.
 
 ## Decision Drivers
 
-- Client-local only: config must never leak into the synchronized document.
+- Client-local only: config must never leak into the synchronized logbook.
 - Hand-editable: a single user maintains this file; comments and a flat
   shape matter more than machine round-tripping.
 - Zero new dependencies where the standard library suffices.

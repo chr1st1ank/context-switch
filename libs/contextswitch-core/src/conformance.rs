@@ -26,7 +26,7 @@ where
     initial_read_is_empty(&mut make_provider);
     commit_returns_incremented_version(&mut make_provider);
     stale_commit_is_a_conflict(&mut make_provider);
-    commit_rejects_invalid_documents(&mut make_provider);
+    commit_rejects_invalid_logbooks(&mut make_provider);
     concurrent_commits_have_a_single_winner(&mut make_provider);
 }
 
@@ -37,9 +37,9 @@ where
     let provider = make_provider();
     let snapshot = provider.read().expect("initial read failed");
     assert_eq!(snapshot.version, "0", "fresh storage must read version 0");
-    assert!(snapshot.document.spans.is_empty());
-    assert!(snapshot.document.projects.is_empty());
-    assert_eq!(snapshot.document.active_span_id, None);
+    assert!(snapshot.logbook.spans.is_empty());
+    assert!(snapshot.logbook.projects.is_empty());
+    assert_eq!(snapshot.logbook.active_span_id, None);
 }
 
 fn commit_returns_incremented_version<F>(make_provider: &mut F)
@@ -48,17 +48,17 @@ where
 {
     let provider = make_provider();
     let snapshot = provider.read().unwrap();
-    let mut document = snapshot.document.clone();
-    let project = document.add_project("work", at(0)).unwrap();
-    document.start_timer(at(10), Some(project), vec![]).unwrap();
+    let mut logbook = snapshot.logbook.clone();
+    let project = logbook.add_project("work", at(0)).unwrap();
+    logbook.start_timer(at(10), Some(project), vec![]).unwrap();
 
-    let version = provider.commit(document, &snapshot.version).unwrap();
+    let version = provider.commit(logbook, &snapshot.version).unwrap();
     assert_eq!(version, "1", "first commit must produce version 1");
 
     let reread = provider.read().unwrap();
     assert_eq!(reread.version, "1");
-    assert_eq!(reread.document.spans.len(), 1);
-    assert!(reread.document.active_span_id.is_some());
+    assert_eq!(reread.logbook.spans.len(), 1);
+    assert!(reread.logbook.active_span_id.is_some());
 }
 
 fn stale_commit_is_a_conflict<F>(make_provider: &mut F)
@@ -68,12 +68,12 @@ where
     let provider = make_provider();
     let snapshot = provider.read().unwrap();
 
-    let mut first = snapshot.document.clone();
+    let mut first = snapshot.logbook.clone();
     first.add_tag("one", at(0)).unwrap();
     provider.commit(first, &snapshot.version).unwrap();
 
     // A commit written against the now-stale version must never overwrite.
-    let mut stale = snapshot.document.clone();
+    let mut stale = snapshot.logbook.clone();
     stale.add_tag("two", at(0)).unwrap();
     match provider.commit(stale, &snapshot.version) {
         Err(StorageError::Conflict { expected, actual }) => {
@@ -84,27 +84,27 @@ where
     }
 }
 
-fn commit_rejects_invalid_documents<F>(make_provider: &mut F)
+fn commit_rejects_invalid_logbooks<F>(make_provider: &mut F)
 where
     F: FnMut() -> Box<dyn StorageProvider>,
 {
     let provider = make_provider();
     let snapshot = provider.read().unwrap();
 
-    // Craft a document with two unstopped spans: the one-active-timer
+    // Craft a logbook with two unstopped spans: the one-active-timer
     // invariant is enforced by the commit, not by client convention.
-    let mut document = snapshot.document.clone();
+    let mut logbook = snapshot.logbook.clone();
     let mut span_a = Span::new(at(0), None, vec![]);
     let mut span_b = Span::new(at(5), None, vec![]);
     span_a.stopped_at = None;
     span_b.stopped_at = None;
-    document.spans.insert(span_a.id, span_a.clone());
-    document.spans.insert(span_b.id, span_b);
-    document.active_span_id = Some(span_a.id);
+    logbook.spans.insert(span_a.id, span_a.clone());
+    logbook.spans.insert(span_b.id, span_b);
+    logbook.active_span_id = Some(span_a.id);
 
-    match provider.commit(document, &snapshot.version) {
+    match provider.commit(logbook, &snapshot.version) {
         Err(StorageError::InvalidData(_)) => {}
-        other => panic!("invalid document must fail with InvalidData, got {other:?}"),
+        other => panic!("invalid logbook must fail with InvalidData, got {other:?}"),
     }
 
     // The rejected commit must not have modified canonical data.
@@ -112,15 +112,15 @@ where
 
     // Overlapping spans are likewise rejected: time must not be
     // double-recorded, so this is enforced by the commit.
-    let mut document = snapshot.document.clone();
+    let mut logbook = snapshot.logbook.clone();
     let mut span_a = Span::new(at(0), None, vec![]);
     span_a.stopped_at = Some(at(100));
     let mut span_b = Span::new(at(50), None, vec![]);
     span_b.stopped_at = Some(at(150));
-    document.spans.insert(span_a.id, span_a);
-    document.spans.insert(span_b.id, span_b);
+    logbook.spans.insert(span_a.id, span_a);
+    logbook.spans.insert(span_b.id, span_b);
 
-    match provider.commit(document, &snapshot.version) {
+    match provider.commit(logbook, &snapshot.version) {
         Err(StorageError::InvalidData(_)) => {}
         other => panic!("overlapping spans must fail with InvalidData, got {other:?}"),
     }
@@ -139,10 +139,10 @@ where
         let handles: Vec<_> = (0..4)
             .map(|i| {
                 let expected = snapshot.version.clone();
-                let mut document = snapshot.document.clone();
+                let mut logbook = snapshot.logbook.clone();
                 scope.spawn(move || {
-                    document.add_tag(format!("tag-{i}"), at(0)).unwrap();
-                    provider.commit(document, &expected)
+                    logbook.add_tag(format!("tag-{i}"), at(0)).unwrap();
+                    provider.commit(logbook, &expected)
                 })
             })
             .collect();

@@ -55,16 +55,16 @@ Projects and tags have stable IDs and mutable display metadata. Renaming must no
 
 ## 5. Canonical data and storage contract
 
-The native format is a versioned, human-readable JSON document using named object fields. Compatibility with external legacy formats is not a requirement.
+The native format is a versioned, human-readable JSON logbook using named object fields. Compatibility with external legacy formats is not a requirement.
 
-The document should contain at least:
+The logbook should contain at least:
 
 - schema version;
 - projects;
 - tags;
 - spans;
 - active-span identity or an equivalent representation;
-- document/revision metadata sufficient for conditional writes.
+- logbook/revision metadata sufficient for conditional writes.
 
 The provider interface must support:
 
@@ -81,11 +81,11 @@ A remote object provider must implement the contract with conditional object wri
 
 Implemented as a three-layer stack rather than a monolithic provider (`libs/contextswitch-core/src/{storage,provider,blob,crypto}.rs`):
 
-- **Document layer** (`storage::StorageProvider`, `provider::GenericProvider`): owns serialization, whole-document validation, the revision counter, and conflict detection. Unaware of bytes-on-the-wire or encryption.
-- **Cipher layer** (`crypto::Cipher`): seals/opens a document's plaintext bytes into/from a self-describing envelope. Storage-agnostic — the same cipher works for any blob store.
+- **Logbook layer** (`storage::StorageProvider`, `provider::GenericProvider`): owns serialization, whole-logbook validation, the revision counter, and conflict detection. Unaware of bytes-on-the-wire or encryption.
+- **Cipher layer** (`crypto::Cipher`): seals/opens a logbook's plaintext bytes into/from a self-describing envelope. Storage-agnostic — the same cipher works for any blob store.
 - **Blob layer** (`blob::BlobStore`): conditional byte-level `get`/`put` against `Precondition::IfAbsent`/`IfMatch`. `LocalFsBlobStore` synthesizes its ETag as a content hash under the existing lockfile; `S3BlobStore` uses the object store's native ETag; `InMemoryBlobStore` exists for fast offline tests.
 
-`GenericProvider` composes one `BlobStore` and one `Cipher`: local storage is the file blob store with an identity cipher, remote storage is the S3 blob store with the AEAD cipher. The opaque version a client reads/commits against remains the document revision, never the blob store's ETag — see ADR-0007 for why the two must stay independent. See `docs/envelope-format.md` for the cipher layer's on-disk byte format and ADR-0008 for the key-management design.
+`GenericProvider` composes one `BlobStore` and one `Cipher`: local storage is the file blob store with an identity cipher, remote storage is the S3 blob store with the AEAD cipher. The opaque version a client reads/commits against remains the logbook revision, never the blob store's ETag — see ADR-0007 for why the two must stay independent. See `docs/envelope-format.md` for the cipher layer's on-disk byte format and ADR-0008 for the key-management design.
 
 ## 6. Synchronization and conflicts
 
@@ -124,9 +124,9 @@ Export is a future client capability. Exporters read the native domain model and
 
 ## 10. Security and configuration
 
-Each client uses user-configured storage credentials. Credentials are stored through the platform's secure credential facility, not in the synchronized JSON document.
+Each client uses user-configured storage credentials. Credentials are stored through the platform's secure credential facility, not in the synchronized JSON logbook.
 
-For remote storage, client-side envelope encryption is mandatory, not optional (ADR-0008): a randomly generated master key encrypts the document; the master key is itself wrapped under a key derived from the user's passphrase via Argon2id, and the wrapped copy travels inside the stored object. The storage provider never sees plaintext, the passphrase, or the master key. Local filesystem storage is unaffected — it composes the same document/blob layering with an identity cipher (§5).
+For remote storage, client-side envelope encryption is mandatory, not optional (ADR-0008): a randomly generated master key encrypts the logbook; the master key is itself wrapped under a key derived from the user's passphrase via Argon2id, and the wrapped copy travels inside the stored object. The storage provider never sees plaintext, the passphrase, or the master key. Local filesystem storage is unaffected — it composes the same logbook/blob layering with an identity cipher (§5).
 
 ## 11. Explicit non-goals
 
@@ -147,4 +147,4 @@ For remote storage, client-side envelope encryption is mandatory, not optional (
 - Shared-core language/runtime strategy.
 - Android background behavior and notification requirements.
 - Conflict export format and retention policy.
-- Passphrase rotation's home in the provider contract (document-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.
+- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.

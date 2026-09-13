@@ -44,7 +44,7 @@ material is generated, wrapped, and rotated.
 ## Decision Outcome
 
 **Encryption sits at the blob boundary**, below serialization and above
-transport. This is forced: the provider contract passes domain `Document`
+transport. This is forced: the provider contract passes domain `Logbook`
 values, so bytes only exist below it — a decorator over the existing
 provider contract isn't expressible without either duplicating
 serialization or leaking bytes above the contract. Consequence: the same
@@ -90,7 +90,7 @@ for its wide random nonce (removes a class of nonce-management error from
 reimplementation); Argon2id for key wrapping. The full header is bound as
 AEAD associated data on the main payload, so tampering with the algorithm,
 key identity, or wrapped-key list is detected as an authentication failure
-rather than honoured. No chunking: the document is a single blob handled in
+rather than honoured. No chunking: the logbook is a single blob handled in
 native code. Full byte layout: `docs/envelope-format.md`.
 
 **Error taxonomy.** Structural envelope problems (bad magic, truncated
@@ -110,10 +110,10 @@ long-term replacement.
 
 **Passphrase rotation is not yet wired in.** Nothing in `cosw` currently
 calls `seal` with a second passphrase against an existing `KeyState`; the
-cipher/document-layer seam supports it (see
+cipher/logbook-layer seam supports it (see
 `key_rotation_and_preservation` in
 `libs/contextswitch-core/tests/encrypted_provider.rs`), but exposing it as
-a document-layer operation (so it inherits conditional-commit safety) is
+a logbook-layer operation (so it inherits conditional-commit safety) is
 tracked in `docs/backlog.md`.
 
 ### Consequences

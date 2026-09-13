@@ -2,7 +2,7 @@
 
 use crate::blob::{BlobStore, Precondition};
 use crate::crypto::{Cipher, CryptoError, KeyState};
-use crate::domain::Document;
+use crate::domain::Logbook;
 use crate::storage::{StorageError, StorageProvider, StorageSnapshot};
 use std::sync::Arc;
 
@@ -51,9 +51,9 @@ impl StorageProvider for GenericProvider {
                 self.cipher.open(&bytes, passphrase)?
             }
             None => {
-                // If it's absent, bootstrap as empty v1 document.
-                let doc = Document::new();
-                let json = serde_json::to_string_pretty(&doc)
+                // If it's absent, bootstrap as empty v1 logbook.
+                let logbook = Logbook::new();
+                let json = serde_json::to_string_pretty(&logbook)
                     .map_err(|e| StorageError::Corrupt(e.to_string()))?;
                 let dummy_state = KeyState {
                     active_key_id: "identity".to_string(),
@@ -67,40 +67,40 @@ impl StorageProvider for GenericProvider {
             StorageError::Corrupt("decrypted payload is not valid UTF-8".to_string())
         })?;
 
-        let document: Document =
+        let logbook: Logbook =
             serde_json::from_str(json_str).map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
-        document
+        logbook
             .validate()
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
-        // The opaque version string remains the document revision, not the ETag.
+        // The opaque version string remains the logbook revision, not the ETag.
         Ok(StorageSnapshot {
-            version: document.revision.to_string(),
-            document,
+            version: logbook.revision.to_string(),
+            logbook,
         })
     }
 
-    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError> {
-        document.validate()?;
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        logbook.validate()?;
 
         let got = self.blob_store.get()?;
         let passphrase = self.passphrase.as_deref().unwrap_or("");
 
-        let (current_doc, current_etag, key_state) = match got {
+        let (current_logbook, current_etag, key_state) = match got {
             Some((bytes, etag)) => {
                 let (plaintext, state) = self.cipher.open(&bytes, passphrase)?;
                 let json_str = std::str::from_utf8(&plaintext).map_err(|_| {
                     StorageError::Corrupt("decrypted payload is not valid UTF-8".to_string())
                 })?;
-                let doc: Document = serde_json::from_str(json_str)
+                let logbook: Logbook = serde_json::from_str(json_str)
                     .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-                (Some(doc), Some(etag), Some(state))
+                (Some(logbook), Some(etag), Some(state))
             }
             None => (None, None, None),
         };
 
-        let actual_version = current_doc
+        let actual_version = current_logbook
             .as_ref()
             .map(|d| d.revision.to_string())
             .unwrap_or_else(|| "0".to_string());
@@ -111,10 +111,13 @@ impl StorageProvider for GenericProvider {
             });
         }
 
-        let mut document = document;
-        document.revision = current_doc.as_ref().map(|d| d.revision + 1).unwrap_or(1);
+        let mut logbook = logbook;
+        logbook.revision = current_logbook
+            .as_ref()
+            .map(|d| d.revision + 1)
+            .unwrap_or(1);
 
-        let json = serde_json::to_string_pretty(&document)
+        let json = serde_json::to_string_pretty(&logbook)
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
         let sealed = self
@@ -128,6 +131,6 @@ impl StorageProvider for GenericProvider {
 
         self.blob_store.put(&sealed, cond)?;
 
-        Ok(document.revision.to_string())
+        Ok(logbook.revision.to_string())
     }
 }

@@ -45,16 +45,16 @@ Chosen option: "Define a native versioned JSON object format", because named fie
 
 ## Implementation Plan
 
-- **Affected paths**: future schema definitions, domain serialization/deserialization, migration registry, provider document envelope, conformance fixtures, report/export modules.
+- **Affected paths**: future schema definitions, domain serialization/deserialization, migration registry, provider logbook envelope, conformance fixtures, report/export modules.
 - **Dependencies**: select a JSON Schema validator appropriate to each implementation language; do not make a schema library part of the domain model.
-- **Patterns to follow**: named fields, stable IDs, explicit `schema_version`, UTC timestamps, nullable `project_id`, record/document revision metadata.
+- **Patterns to follow**: named fields, stable IDs, explicit `schema_version`, UTC timestamps, nullable `project_id`, record/logbook revision metadata.
 - **Patterns to avoid**: positional tuples as the canonical format; project names as identity; report-specific persisted fields; choosing an export format before the native model is stable.
 - **Configuration**: supported schema versions and migration policy.
 - **Migration steps**: define schema version 1; add fixtures for active, stopped, unassigned, tagged, edited, and conflicted captures; implement forward migrations before introducing schema version 2.
 
 ## Verification
 
-- [ ] A valid document can represent an active timer, a stopped span, unassigned time, projects, and multiple tags.
+- [ ] A valid logbook can represent an active timer, a stopped span, unassigned time, projects, and multiple tags.
 - [ ] A project rename does not change historical span identity or classification.
 - [ ] Serialization round-trips without loss of domain data.
 - [ ] Schema validation rejects malformed or unsupported versions clearly.
@@ -63,10 +63,10 @@ Chosen option: "Define a native versioned JSON object format", because named fie
 
 ## Amendment (2026-09-13, see ADR-0007/ADR-0008)
 
-The native JSON document is unchanged, but it is no longer the only
+The native JSON logbook is unchanged, but it is no longer the only
 serialization the storage stack knows about: a cipher layer beneath the
-document layer may seal the document's JSON bytes into an encrypted
+logbook layer may seal the logbook's JSON bytes into an encrypted
 envelope before they reach a blob store, and open them back into the same
-JSON on read. The document schema and its versioning remain exactly as
+JSON on read. The logbook schema and its versioning remain exactly as
 specified above; the envelope has its own, independent format version (see
 `docs/envelope-format.md`).

@@ -12,9 +12,9 @@ from typing import Any, TypeVar
 
 import click
 from contextswitch_core import (
-    Document,
     DomainError,
     LocalFsProvider,
+    Logbook,
     Project,
     S3Provider,
     Span,
@@ -101,11 +101,11 @@ def get_provider(ctx: click.Context) -> LocalFsProvider | S3Provider:
     return provider
 
 
-def read_document(ctx: click.Context) -> Document:
+def read_logbook(ctx: click.Context) -> Logbook:
     try:
-        doc = get_provider(ctx).read().document
-        assert isinstance(doc, Document)
-        return doc
+        logbook = get_provider(ctx).read().logbook
+        assert isinstance(logbook, Logbook)
+        return logbook
     except StorageError as e:
         raise click.ClickException(str(e)) from e
 
@@ -133,7 +133,7 @@ def config_info(ctx: click.Context) -> dict[str, Any]:
 
 def transact(
     ctx: click.Context,
-    mutate: Callable[[Document], T],
+    mutate: Callable[[Logbook], T],
     confirm: Callable[[T], None] | None = None,
 ) -> T:
     """Read canonical data, apply one focused mutation, and commit conditionally.
@@ -146,15 +146,15 @@ def transact(
         snap = provider.read()
     except StorageError as e:
         raise click.ClickException(str(e)) from e
-    doc = snap.document
+    logbook = snap.logbook
     try:
-        result = mutate(doc)
+        result = mutate(logbook)
     except DomainError as e:
         raise click.ClickException(str(e)) from e
     if confirm is not None:
         confirm(result)
     try:
-        provider.commit(doc, snap.version)
+        provider.commit(logbook, snap.version)
     except (DomainError, StorageError) as e:
         raise click.ClickException(str(e)) from e
     return result
@@ -178,47 +178,49 @@ def _find_by_name(items: list[_Named], name: str) -> _Named | None:
     return None
 
 
-def require_project(doc: Document, name: str) -> Project:
-    project = _find_by_name(doc.projects(), name)
+def require_project(logbook: Logbook, name: str) -> Project:
+    project = _find_by_name(logbook.projects(), name)
     if project is None:
         raise click.ClickException(f"unknown project: {name}")
     return project
 
 
-def require_tag(doc: Document, name: str) -> Tag:
-    tag = _find_by_name(doc.tags(), name)
+def require_tag(logbook: Logbook, name: str) -> Tag:
+    tag = _find_by_name(logbook.tags(), name)
     if tag is None:
         raise click.ClickException(f"unknown tag: {name}")
     return tag
 
 
 def resolve_project_id(
-    doc: Document, name: str | None, at: datetime, created: list[str]
+    logbook: Logbook, name: str | None, at: datetime, created: list[str]
 ) -> str | None:
     """Resolve a project name to an ID, creating it on first use."""
     if name is None:
         return None
-    existing = _find_by_name(doc.projects(), name)
+    existing = _find_by_name(logbook.projects(), name)
     if existing is not None:
         if existing.archived:
             raise click.ClickException(f"project {existing.name!r} is archived; unarchive it first")
         return existing.id
-    project_id = doc.add_project(name, at)
+    project_id = logbook.add_project(name, at)
     created.append(f"created project {name}")
     return project_id
 
 
-def resolve_tag_ids(doc: Document, names: list[str], at: datetime, created: list[str]) -> list[str]:
+def resolve_tag_ids(
+    logbook: Logbook, names: list[str], at: datetime, created: list[str]
+) -> list[str]:
     """Resolve tag names to IDs, creating them on first use."""
     ids: list[str] = []
     for name in names:
-        existing = _find_by_name(doc.tags(), name)
+        existing = _find_by_name(logbook.tags(), name)
         if existing is not None:
             if existing.archived:
                 raise click.ClickException(f"tag {existing.name!r} is archived; unarchive it first")
             ids.append(existing.id)
             continue
-        ids.append(doc.add_tag(name, at))
+        ids.append(logbook.add_tag(name, at))
         created.append(f"created tag {name}")
     return ids
 
@@ -239,18 +241,18 @@ def parse_classification(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
     return project, tags
 
 
-def sorted_spans(doc: Document) -> list[Span]:
-    return sorted(doc.spans(), key=lambda s: s.started_at)
+def sorted_spans(logbook: Logbook) -> list[Span]:
+    return sorted(logbook.spans(), key=lambda s: s.started_at)
 
 
-def resolve_span(doc: Document, ref: str | None) -> Span:
+def resolve_span(logbook: Logbook, ref: str | None) -> Span:
     """Resolve a span reference: ``-N`` recency index or unambiguous ID prefix.
 
     ``None`` means the active span, or the most recent span when idle.
     """
-    spans = sorted_spans(doc)
+    spans = sorted_spans(logbook)
     if ref is None:
-        active = doc.active_span()
+        active = logbook.active_span()
         if active is not None:
             return active
         if spans:
@@ -269,28 +271,28 @@ def resolve_span(doc: Document, ref: str | None) -> Span:
     return matches[0]
 
 
-def project_name(doc: Document, span: Span) -> str:
+def project_name(logbook: Logbook, span: Span) -> str:
     if span.project_id is None:
         return "(unassigned)"
-    project = doc.project(span.project_id)
+    project = logbook.project(span.project_id)
     return project.name if project is not None else "(unassigned)"
 
 
-def tag_names(doc: Document, span: Span) -> list[str]:
+def tag_names(logbook: Logbook, span: Span) -> list[str]:
     names = []
     for tag_id in span.tag_ids:
-        tag = doc.tag(tag_id)
+        tag = logbook.tag(tag_id)
         names.append(tag.name if tag is not None else tag_id[:8])
     return sorted(names, key=str.casefold)
 
 
-def describe(doc: Document, span: Span) -> str:
-    name = project_name(doc, span)
-    tags = " ".join(f"+{t}" for t in tag_names(doc, span))
+def describe(logbook: Logbook, span: Span) -> str:
+    name = project_name(logbook, span)
+    tags = " ".join(f"+{t}" for t in tag_names(logbook, span))
     return f"{name} ({tags})" if tags else name
 
 
-def span_to_json(doc: Document, span: Span, now: datetime) -> dict[str, Any]:
+def span_to_json(logbook: Logbook, span: Span, now: datetime) -> dict[str, Any]:
     stopped = span.stopped_at
     end = stopped if stopped is not None else now
     return {
@@ -298,8 +300,8 @@ def span_to_json(doc: Document, span: Span, now: datetime) -> dict[str, Any]:
         "started_at": span.started_at.isoformat(),
         "stopped_at": stopped.isoformat() if stopped is not None else None,
         "active": span.is_active,
-        "project": project_name(doc, span),
-        "tags": tag_names(doc, span),
+        "project": project_name(logbook, span),
+        "tags": tag_names(logbook, span),
         "seconds": int((end - span.started_at).total_seconds()),
     }
 

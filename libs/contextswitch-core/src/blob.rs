@@ -160,15 +160,15 @@ impl BlobStore for LocalFsBlobStore {
         let bytes = fs::read(&self.path)?;
         // We can synthesize a simple etag or revision.
         // For compatibility with current conformance/tests which expect revision counter to be version,
-        // let's parse the document revision or derive from the file contents.
+        // let's parse the logbook revision or derive from the file contents.
         // Since we are decoupling, the file contains the serialized bytes (which could be plaintext or encrypted).
         // Let's generate a version/etag based on the bytes hash or read revision if plaintext.
         // Wait, if it's plaintext JSON, we can extract the revision from the JSON!
-        // If it is encrypted envelope, the version can be parsed from the encrypted document, or we can use a hash.
+        // If it is encrypted envelope, the version can be parsed from the encrypted logbook, or we can use a hash.
         // Actually, the PRD says:
         // "Local storage synthesizes its ETag as a content hash compared under the existing lockfile, giving both backends identical precondition semantics."
         // And:
-        // "The opaque version string remains the document revision, not the ETag. The ETag is used internally for compare-and-swap only. This keeps one version semantics across backends, keeps conflict messages human-meaningful, keeps the existing conformance suite intact as a genuine cross-provider contract..."
+        // "The opaque version string remains the logbook revision, not the ETag. The ETag is used internally for compare-and-swap only. This keeps one version semantics across backends, keeps conflict messages human-meaningful, keeps the existing conformance suite intact as a genuine cross-provider contract..."
         // This is a beautiful distinction! Let's compute a hash of the content for the ETag.
         let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
         sha2::Digest::update(&mut hasher, &bytes);

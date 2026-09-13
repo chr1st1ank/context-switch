@@ -3,7 +3,7 @@
 from datetime import datetime
 
 class DomainError(Exception):
-    """A domain rule or document invariant was violated."""
+    """A domain rule or logbook invariant was violated."""
 
 class StorageError(Exception):
     """A storage provider operation failed."""
@@ -49,12 +49,12 @@ class Span:
         tag_ids: list[str] | None = None,
     ) -> Span: ...
 
-class Document:
-    """The canonical versioned data document.
+class Logbook:
+    """The canonical versioned data logbook.
 
     Mutations take an explicit ``at`` timestamp (timezone-aware, UTC) so
-    timer actions captured offline can be replayed faithfully. The document
-    is validated on every commit; mutating a snapshot's document and
+    timer actions captured offline can be replayed faithfully. The logbook
+    is validated on every commit; mutating a snapshot's logbook and
     committing against the observed version is one transaction.
     """
 
@@ -62,7 +62,7 @@ class Document:
     revision: int
     active_span_id: str | None
 
-    def __new__(cls) -> Document: ...
+    def __new__(cls) -> Logbook: ...
     def active_span(self) -> Span | None:
         """The span currently recording time, if any."""
     def project(self, id: str) -> Project | None: ...
@@ -129,21 +129,21 @@ class Document:
     def to_json(self) -> str:
         """Serialize to the canonical pretty-printed JSON representation."""
     @staticmethod
-    def from_json(json: str) -> Document:
-        """Parse a document from its canonical JSON representation."""
+    def from_json(json: str) -> Logbook:
+        """Parse a logbook from its canonical JSON representation."""
 
 class StorageSnapshot:
     """A read of canonical data plus the version it was observed at."""
 
     version: str
-    document: Document
+    logbook: Logbook
 
 class LocalFsProvider:
-    """Canonical storage as a single JSON document on the local filesystem.
+    """Canonical storage as a single JSON logbook on the local filesystem.
 
     Commits serialize through a ``<file>.lock`` lockfile and write via
-    temp-file + atomic rename. Created with the document's file path;
-    an empty v1 document is created if none exists.
+    temp-file + atomic rename. Created with the logbook's file path;
+    an empty v1 logbook is created if none exists.
     """
 
     path: str
@@ -151,9 +151,9 @@ class LocalFsProvider:
 
     def __new__(cls, path: str) -> LocalFsProvider: ...
     def read(self) -> StorageSnapshot:
-        """Read the canonical document and its current version."""
-    def commit(self, document: Document, expected_version: str) -> str:
-        """Conditionally write ``document`` if the stored version still
+        """Read the canonical logbook and its current version."""
+    def commit(self, logbook: Logbook, expected_version: str) -> str:
+        """Conditionally write ``logbook`` if the stored version still
         equals ``expected_version``. Returns the new version on success;
         raises StorageError on conflict."""
 
@@ -173,9 +173,9 @@ class S3Provider:
         profile: str | None = None,
     ) -> S3Provider: ...
     def read(self) -> StorageSnapshot:
-        """Read the canonical document and its current version."""
-    def commit(self, document: Document, expected_version: str) -> str:
-        """Conditionally write ``document`` if the stored version still
+        """Read the canonical logbook and its current version."""
+    def commit(self, logbook: Logbook, expected_version: str) -> str:
+        """Conditionally write ``logbook`` if the stored version still
         equals ``expected_version``. Returns the new version on success;
         raises StorageError on conflict."""
 

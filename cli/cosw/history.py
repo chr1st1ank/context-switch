@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 import click
-from contextswitch_core import Document, Span
+from contextswitch_core import Logbook, Span
 
 from cosw.cli import main
 from cosw.core import (
@@ -16,7 +16,7 @@ from cosw.core import (
     parse_classification,
     parse_dt,
     project_name,
-    read_document,
+    read_logbook,
     require_tag,
     resolve_project_id,
     resolve_span,
@@ -53,13 +53,13 @@ def add(ctx: click.Context, args: tuple[str, ...], from_str: str, to_str: str) -
     now = utcnow()
     created: list[str] = []
 
-    def mutate(doc: Document) -> str:
-        project_id = resolve_project_id(doc, project_name, now, created)
-        tag_ids = resolve_tag_ids(doc, tag_names, now, created)
-        span_id = doc.add_span(started, stopped, project_id, tag_ids, now)
-        span = doc.span(span_id)
+    def mutate(logbook: Logbook) -> str:
+        project_id = resolve_project_id(logbook, project_name, now, created)
+        tag_ids = resolve_tag_ids(logbook, tag_names, now, created)
+        span_id = logbook.add_span(started, stopped, project_id, tag_ids, now)
+        span = logbook.span(span_id)
         assert span is not None
-        return describe(doc, span)
+        return describe(logbook, span)
 
     description = transact(ctx, mutate)
     echo_created(created)
@@ -118,27 +118,27 @@ def edit(
     now = utcnow()
     created: list[str] = []
 
-    def mutate(doc: Document) -> str:
-        span = resolve_span(doc, ref)
+    def mutate(logbook: Logbook) -> str:
+        span = resolve_span(logbook, ref)
         if unassign:
-            doc.unassign_span(span.id, now)
+            logbook.unassign_span(span.id, now)
         project_id = None
         if project_name is not None:
-            project_id = resolve_project_id(doc, project_name, now, created)
+            project_id = resolve_project_id(logbook, project_name, now, created)
         tag_ids = None
         if adds or untags:
             current = list(span.tag_ids)
             for name in adds:
-                tag_id = resolve_tag_ids(doc, [name], now, created)[0]
+                tag_id = resolve_tag_ids(logbook, [name], now, created)[0]
                 if tag_id not in current:
                     current.append(tag_id)
             for name in untags:
-                tag = require_tag(doc, name)
+                tag = require_tag(logbook, name)
                 if tag.id not in current:
                     raise click.ClickException(f"span has no tag {name!r}")
                 current.remove(tag.id)
             tag_ids = current
-        doc.edit_span(
+        logbook.edit_span(
             span.id,
             now,
             started_at=started,
@@ -146,9 +146,9 @@ def edit(
             project_id=project_id,
             tag_ids=tag_ids,
         )
-        updated = doc.span(span.id)
+        updated = logbook.span(span.id)
         assert updated is not None
-        return describe(doc, updated)
+        return describe(logbook, updated)
 
     description = transact(ctx, mutate)
     echo_created(created)
@@ -163,14 +163,14 @@ def remove(ctx: click.Context, ref: str, force: bool) -> None:
     """Remove a span entirely."""
     now = utcnow()
 
-    def mutate(doc: Document) -> str:
-        span = resolve_span(doc, ref)
+    def mutate(logbook: Logbook) -> str:
+        span = resolve_span(logbook, ref)
         end = span.stopped_at if span.stopped_at is not None else now
         description = (
-            f"{describe(doc, span)} {fmt_local(span.started_at)} – "
+            f"{describe(logbook, span)} {fmt_local(span.started_at)} – "
             f"{fmt_time(end)} ({fmt_duration((end - span.started_at).total_seconds())})"
         )
-        doc.remove_span(span.id)
+        logbook.remove_span(span.id)
         return description
 
     def confirm(description: str) -> None:
@@ -259,18 +259,18 @@ def log(
     as_json: bool,
 ) -> None:
     """List recorded spans, newest first."""
-    doc = read_document(ctx)
+    logbook = read_logbook(ctx)
     now = utcnow()
     filters = _filters(
         range_, from_str, to_str, projects, tags, ignore_projects, ignore_tags, current
     )
-    rows = matching_spans(doc, filters, now)
+    rows = matching_spans(logbook, filters, now)
     if not reverse:
         rows.reverse()
     if as_json:
         payload = [
             {
-                **span_to_json(doc, span, now),
+                **span_to_json(logbook, span, now),
                 "started_at": lo.isoformat(),
                 "stopped_at": hi.isoformat() if not span.is_active else None,
                 "seconds": int((hi - lo).total_seconds()),
@@ -284,20 +284,20 @@ def log(
         seconds = (hi - lo).total_seconds()
         click.echo(
             f"{span.id[:8]}  {fmt_local(lo)} – {end:<16}  "
-            f"{describe(doc, span)}  {fmt_duration(seconds)}"
+            f"{describe(logbook, span)}  {fmt_duration(seconds)}"
         )
 
 
-def _totals_by_project(doc: Document):
+def _totals_by_project(logbook: Logbook):
     def key(span: Span) -> list[str]:
-        return [project_name(doc, span)]
+        return [project_name(logbook, span)]
 
     return key
 
 
-def _totals_by_tag(doc: Document):
+def _totals_by_tag(logbook: Logbook):
     def key(span: Span) -> list[str]:
-        names = tag_names(doc, span)
+        names = tag_names(logbook, span)
         return names if names else ["(untagged)"]
 
     return key
@@ -334,16 +334,16 @@ def report(
     as_json: bool,
 ) -> None:
     """Report time totals by project, tag, or day."""
-    doc = read_document(ctx)
+    logbook = read_logbook(ctx)
     now = utcnow()
     filters = _filters(
         range_, from_str, to_str, projects, tags, ignore_projects, ignore_tags, current
     )
-    rows = matching_spans(doc, filters, now)
+    rows = matching_spans(logbook, filters, now)
     total = sum((hi - lo).total_seconds() for _, lo, hi in rows)
 
     if by == "day":
-        days = totals_by_day(doc, rows)
+        days = totals_by_day(logbook, rows)
         if as_json:
             payload = {
                 "by": "day",
@@ -372,7 +372,7 @@ def report(
             click.echo("No time recorded.")
         return
 
-    key = _totals_by_tag(doc) if by == "tag" else _totals_by_project(doc)
+    key = _totals_by_tag(logbook) if by == "tag" else _totals_by_project(logbook)
     totals = totals_by(rows, key)
     if as_json:
         payload = {

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 
 import click
-from contextswitch_core import Document, Span
+from contextswitch_core import Logbook, Span
 
 from cosw.core import project_name, require_project, require_tag
 from cosw.timeparse import local_tz, parse_datetime, parse_range_end
@@ -55,17 +55,17 @@ def bounds(f: Filters, now: datetime) -> tuple[datetime | None, datetime | None]
     return lo, hi
 
 
-def _name_ids(doc: Document, names: tuple[str, ...], kind: str) -> set[str]:
+def _name_ids(logbook: Logbook, names: tuple[str, ...], kind: str) -> set[str]:
     """Resolve filter names to IDs; unknown names are errors, never created."""
     ids = set()
     for name in names:
-        item = require_project(doc, name) if kind == "project" else require_tag(doc, name)
+        item = require_project(logbook, name) if kind == "project" else require_tag(logbook, name)
         ids.add(item.id)
     return ids
 
 
 def matching_spans(
-    doc: Document, f: Filters, now: datetime
+    logbook: Logbook, f: Filters, now: datetime
 ) -> list[tuple[Span, datetime, datetime]]:
     """Spans matching ``f``, each with its range-clipped (start, stop) bounds.
 
@@ -73,13 +73,13 @@ def matching_spans(
     clipped at ``now``.
     """
     lo, hi = bounds(f, now)
-    project_ids = _name_ids(doc, f.projects, "project") if f.projects else None
-    tag_ids = _name_ids(doc, f.tags, "tag") if f.tags else None
-    ignore_projects = _name_ids(doc, f.ignore_projects, "project")
-    ignore_tags = _name_ids(doc, f.ignore_tags, "tag")
+    project_ids = _name_ids(logbook, f.projects, "project") if f.projects else None
+    tag_ids = _name_ids(logbook, f.tags, "tag") if f.tags else None
+    ignore_projects = _name_ids(logbook, f.ignore_projects, "project")
+    ignore_tags = _name_ids(logbook, f.ignore_tags, "tag")
 
     rows: list[tuple[Span, datetime, datetime]] = []
-    for span in doc.spans():
+    for span in logbook.spans():
         if span.is_active and not f.include_current:
             continue
         if project_ids is not None and span.project_id not in project_ids:
@@ -114,13 +114,13 @@ def totals_by(
 
 
 def totals_by_day(
-    doc: Document, rows: list[tuple[Span, datetime, datetime]]
+    logbook: Logbook, rows: list[tuple[Span, datetime, datetime]]
 ) -> dict[str, dict[str, float]]:
     """Per-local-date totals broken down by project."""
     days: dict[str, dict[str, float]] = {}
     for span, lo, hi in rows:
         day = lo.astimezone().date().isoformat()
-        name = project_name(doc, span)
+        name = project_name(logbook, span)
         bucket = days.setdefault(day, {})
         bucket[name] = bucket.get(name, 0.0) + (hi - lo).total_seconds()
     return days

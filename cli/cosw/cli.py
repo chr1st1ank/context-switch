@@ -9,7 +9,7 @@ from typing import Any
 
 import click
 from click.core import ParameterSource
-from contextswitch_core import Document, StorageError, decrypt_envelope
+from contextswitch_core import Logbook, StorageError, decrypt_envelope
 
 from cosw.config import (
     CONFIG_SKELETON,
@@ -26,7 +26,7 @@ from cosw.core import (
     echo_created,
     parse_classification,
     parse_dt,
-    read_document,
+    read_logbook,
     resolve_project_id,
     resolve_span,
     resolve_tag_ids,
@@ -85,14 +85,14 @@ def main(ctx: click.Context, data_file: Path | None, config_file: Path | None) -
 
 
 def _resolve_all(
-    doc: Document,
+    logbook: Logbook,
     project_name: str | None,
     tag_names: list[str],
     at,
     created: list[str],
 ) -> tuple[str | None, list[str]]:
-    project_id = resolve_project_id(doc, project_name, at, created)
-    tag_ids = resolve_tag_ids(doc, tag_names, at, created)
+    project_id = resolve_project_id(logbook, project_name, at, created)
+    tag_ids = resolve_tag_ids(logbook, tag_names, at, created)
     return project_id, tag_ids
 
 
@@ -106,16 +106,16 @@ def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None
     at = parse_dt(at_str) if at_str else utcnow()
     created: list[str] = []
 
-    def mutate(doc: Document) -> str:
-        if doc.active_span() is not None:
+    def mutate(logbook: Logbook) -> str:
+        if logbook.active_span() is not None:
             raise click.ClickException(
                 "a timer is already active; use 'cosw switch' to change tasks"
             )
-        project_id, tag_ids = _resolve_all(doc, project_name, tag_names, at, created)
-        doc.start_timer(at, project_id, tag_ids)
-        active = doc.active_span()
+        project_id, tag_ids = _resolve_all(logbook, project_name, tag_names, at, created)
+        logbook.start_timer(at, project_id, tag_ids)
+        active = logbook.active_span()
         assert active is not None
-        return describe(doc, active)
+        return describe(logbook, active)
 
     description = transact(ctx, mutate)
     echo_created(created)
@@ -129,13 +129,13 @@ def stop(ctx: click.Context, at_str: str | None) -> None:
     """Stop the active timer."""
     at = parse_dt(at_str) if at_str else utcnow()
 
-    def mutate(doc: Document) -> tuple[str, float]:
-        active = doc.active_span()
+    def mutate(logbook: Logbook) -> tuple[str, float]:
+        active = logbook.active_span()
         if active is None:
             raise click.ClickException("no active timer")
-        description = describe(doc, active)
+        description = describe(logbook, active)
         seconds = (at - active.started_at).total_seconds()
-        doc.stop_timer(at)
+        logbook.stop_timer(at)
         return description, seconds
 
     description, seconds = transact(ctx, mutate)
@@ -154,14 +154,14 @@ def switch(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> Non
     at = parse_dt(at_str) if at_str else utcnow()
     created: list[str] = []
 
-    def mutate(doc: Document) -> tuple[str | None, str]:
-        previous = doc.active_span()
-        previous_desc = describe(doc, previous) if previous is not None else None
-        project_id, tag_ids = _resolve_all(doc, project_name, tag_names, at, created)
-        doc.switch(at, project_id, tag_ids)
-        active = doc.active_span()
+    def mutate(logbook: Logbook) -> tuple[str | None, str]:
+        previous = logbook.active_span()
+        previous_desc = describe(logbook, previous) if previous is not None else None
+        project_id, tag_ids = _resolve_all(logbook, project_name, tag_names, at, created)
+        logbook.switch(at, project_id, tag_ids)
+        active = logbook.active_span()
         assert active is not None
-        return previous_desc, describe(doc, active)
+        return previous_desc, describe(logbook, active)
 
     previous_desc, description = transact(ctx, mutate)
     echo_created(created)
@@ -185,18 +185,18 @@ def resume(ctx: click.Context, ref: str | None, at_str: str | None) -> None:
     """
     at = parse_dt(at_str) if at_str else utcnow()
 
-    def mutate(doc: Document) -> str:
-        if doc.active_span() is not None:
+    def mutate(logbook: Logbook) -> str:
+        if logbook.active_span() is not None:
             raise click.ClickException(
                 "a timer is already active; use 'cosw switch' to change tasks"
             )
-        if not sorted_spans(doc):
+        if not sorted_spans(logbook):
             raise click.ClickException("nothing to resume")
-        source = resolve_span(doc, ref)
-        doc.start_timer(at, source.project_id, source.tag_ids)
-        active = doc.active_span()
+        source = resolve_span(logbook, ref)
+        logbook.start_timer(at, source.project_id, source.tag_ids)
+        active = logbook.active_span()
         assert active is not None
-        return describe(doc, active)
+        return describe(logbook, active)
 
     description = transact(ctx, mutate)
     click.echo(f"Resumed {description} at {fmt_time(at)}")
@@ -209,13 +209,13 @@ def cancel(ctx: click.Context, force: bool) -> None:
     """Discard the active timer without recording the time."""
     now = utcnow()
 
-    def mutate(doc: Document) -> tuple[str, float]:
-        active = doc.active_span()
+    def mutate(logbook: Logbook) -> tuple[str, float]:
+        active = logbook.active_span()
         if active is None:
             raise click.ClickException("no active timer")
-        description = describe(doc, active)
+        description = describe(logbook, active)
         seconds = (now - active.started_at).total_seconds()
-        doc.remove_span(active.id)
+        logbook.remove_span(active.id)
         return description, seconds
 
     def confirm(result: tuple[str, float]) -> None:
@@ -232,12 +232,12 @@ def cancel(ctx: click.Context, force: bool) -> None:
 @click.pass_context
 def status(ctx: click.Context, as_json: bool, verbose: bool) -> None:
     """Show the active timer and elapsed time."""
-    doc = read_document(ctx)
-    active = doc.active_span()
+    logbook = read_logbook(ctx)
+    active = logbook.active_span()
     now = utcnow()
     if as_json:
         payload: dict[str, Any] = (
-            span_to_json(doc, active, now) if active is not None else {"active": False}
+            span_to_json(logbook, active, now) if active is not None else {"active": False}
         )
         if verbose:
             payload["storage"] = storage_info(ctx)
@@ -256,7 +256,7 @@ def status(ctx: click.Context, as_json: bool, verbose: bool) -> None:
     else:
         elapsed = (now - active.started_at).total_seconds()
         click.echo(
-            f"{describe(doc, active)} — started {fmt_time(active.started_at)}, "
+            f"{describe(logbook, active)} — started {fmt_time(active.started_at)}, "
             f"elapsed {fmt_duration(elapsed)}"
         )
 
@@ -297,8 +297,8 @@ def config(ctx: click.Context, show_path: bool) -> None:
 )
 @click.option("--passphrase-command", help="Command to run to retrieve the passphrase.")
 def decrypt(file: Path, passphrase: str | None, passphrase_command: str | None) -> None:
-    """Decrypt a downloaded logbook to plaintext JSON, for disaster recovery
-    without a working cosw installation or config."""
+    """Decrypt a downloaded logbook file to plaintext JSON, for disaster
+    recovery without a working cosw installation or config."""
     if passphrase and passphrase_command:
         raise click.UsageError("--passphrase and --passphrase-command are mutually exclusive")
 

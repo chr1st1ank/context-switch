@@ -2,7 +2,7 @@
 //!
 //! The contract is deliberately small: [`StorageProvider::read`] returns a
 //! snapshot plus an opaque version, and [`StorageProvider::commit`] writes a
-//! document only if the stored version still equals the observed one. That
+//! logbook only if the stored version still equals the observed one. That
 //! conditional write is what enforces the one-active-timer invariant and
 //! prevents silent stale overwrites — callers read, apply one focused
 //! mutation, and commit against the version they saw.
@@ -18,7 +18,7 @@ use thiserror::Error;
 
 use crate::blob::{BlobStore, LocalFsBlobStore};
 use crate::crypto::{EnvelopeCipher, IdentityCipher};
-use crate::domain::{Document, DomainError};
+use crate::domain::{DomainError, Logbook};
 use crate::exceptions;
 use crate::provider::GenericProvider;
 use crate::s3::S3BlobStore;
@@ -37,8 +37,8 @@ pub enum StorageError {
     /// Underlying I/O failure (missing file, permission denied, ...).
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    /// The stored bytes are not a valid, consistent document.
-    #[error("corrupt logbook: {0}")]
+    /// The stored bytes are not a valid, consistent logbook.
+    #[error("corrupt logbook file: {0}")]
     Corrupt(String),
     /// The stored version no longer matches the version the caller wrote
     /// against — another commit won the race.
@@ -47,8 +47,8 @@ pub enum StorageError {
     /// The provider lock could not be acquired in time.
     #[error("storage is locked by another process")]
     Locked,
-    /// The document a caller tried to commit violates a domain invariant.
-    #[error("invalid document: {0}")]
+    /// The logbook a caller tried to commit violates a domain invariant.
+    #[error("invalid logbook: {0}")]
     InvalidData(#[from] DomainError),
     /// Decryption failed.
     #[error("decryption failed (wrong passphrase or tampered data)")]
@@ -72,26 +72,26 @@ impl From<StorageError> for PyErr {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct StorageSnapshot {
-    /// Opaque version string; a document revision for local files, an ETag
+    /// Opaque version string; a logbook revision for local files, an ETag
     /// for remote object storage.
     #[pyo3(get)]
     pub version: String,
     #[pyo3(get)]
-    pub document: Document,
+    pub logbook: Logbook,
 }
 
 /// The common contract for synchronized storage.
 ///
 /// Implementations must guarantee that `commit` is atomic: the version check
 /// and the write are serialized so that a stale `expected_version` can never
-/// silently overwrite a newer document.
+/// silently overwrite a newer logbook.
 pub trait StorageProvider: Send + Sync {
-    /// Read the canonical document and its current version.
+    /// Read the canonical logbook and its current version.
     fn read(&self) -> Result<StorageSnapshot, StorageError>;
 
-    /// Conditionally write `document` if the stored version still equals
+    /// Conditionally write `logbook` if the stored version still equals
     /// `expected_version`. Returns the new version on success.
-    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError>;
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError>;
 }
 
 /// Removes the lockfile when the guard goes out of scope.
@@ -103,7 +103,7 @@ impl Drop for LockGuard {
     }
 }
 
-/// Canonical storage as a single JSON document on the local filesystem.
+/// Canonical storage as a single JSON logbook on the local filesystem.
 ///
 /// Commits serialize through a sibling `<file>.lock` lockfile created with
 /// `create_new` (atomic on all platforms), then write `<file>.tmp` and
@@ -118,7 +118,7 @@ pub struct LocalFsProvider {
 }
 
 impl LocalFsProvider {
-    /// Open the document at `path`, creating an empty v1 document (and any
+    /// Open the logbook at `path`, creating an empty v1 logbook (and any
     /// missing parent directories) if it does not exist.
     pub fn new(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         Self::with_options(path, LOCK_TIMEOUT, STALE_LOCK_AGE)
@@ -137,15 +137,15 @@ impl LocalFsProvider {
             stale_lock_age,
         )?);
 
-        // Bootstrap an empty v1 document if none exists yet. Two processes
+        // Bootstrap an empty v1 logbook if none exists yet. Two processes
         // racing to open the same fresh path may both observe absence and
         // both attempt this; the loser's `IfAbsent` put fails with
         // `Conflict`, which is not a real failure here — the file exists
         // either way once one of them wins, so it is swallowed rather than
         // surfaced as an error opening the provider.
         if !path.exists() {
-            let doc = Document::new();
-            let json = serde_json::to_string_pretty(&doc)
+            let logbook = Logbook::new();
+            let json = serde_json::to_string_pretty(&logbook)
                 .map_err(|e| StorageError::Corrupt(e.to_string()))?;
             match blob_store.put(json.as_bytes(), crate::blob::Precondition::IfAbsent) {
                 Ok(_) | Err(StorageError::Conflict { .. }) => {}
@@ -169,8 +169,8 @@ impl StorageProvider for LocalFsProvider {
         self.inner.read()
     }
 
-    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError> {
-        self.inner.commit(document, expected_version)
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        self.inner.commit(logbook, expected_version)
     }
 }
 
@@ -200,11 +200,11 @@ impl LocalFsProvider {
         Ok(<Self as StorageProvider>::read(self)?)
     }
 
-    #[pyo3(name = "commit", signature = (document, expected_version))]
-    fn py_commit(&self, document: Document, expected_version: String) -> PyResult<String> {
+    #[pyo3(name = "commit", signature = (logbook, expected_version))]
+    fn py_commit(&self, logbook: Logbook, expected_version: String) -> PyResult<String> {
         Ok(<Self as StorageProvider>::commit(
             self,
-            document,
+            logbook,
             &expected_version,
         )?)
     }
@@ -277,11 +277,11 @@ impl S3Provider {
         Ok(<Self as StorageProvider>::read(self)?)
     }
 
-    #[pyo3(name = "commit", signature = (document, expected_version))]
-    fn py_commit(&self, document: Document, expected_version: String) -> PyResult<String> {
+    #[pyo3(name = "commit", signature = (logbook, expected_version))]
+    fn py_commit(&self, logbook: Logbook, expected_version: String) -> PyResult<String> {
         Ok(<Self as StorageProvider>::commit(
             self,
-            document,
+            logbook,
             &expected_version,
         )?)
     }
@@ -292,7 +292,7 @@ impl StorageProvider for S3Provider {
         self.inner.read()
     }
 
-    fn commit(&self, document: Document, expected_version: &str) -> Result<String, StorageError> {
-        self.inner.commit(document, expected_version)
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        self.inner.commit(logbook, expected_version)
     }
 }

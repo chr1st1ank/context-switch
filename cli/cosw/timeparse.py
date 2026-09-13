@@ -2,7 +2,7 @@
 
 Inputs are ISO 8601 or a bare ``HH:MM[:SS]`` meaning today; naive values are
 interpreted in the local timezone and converted to UTC, which is what the
-core document stores.
+core logbook stores.
 """
 
 from __future__ import annotations

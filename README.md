@@ -174,7 +174,7 @@ The initial design does not provide interactive merge resolution. Conflicted off
 
 ## Security
 
-- Credentials are stored through the platform's secure credential facility, not in the synchronized JSON document
+- Credentials are stored through the platform's secure credential facility, not in the synchronized JSON logbook
 - Encryption is a storage-provider configuration option
 - The provider boundary permits an encryption wrapper for future use
 

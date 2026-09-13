@@ -1,6 +1,6 @@
 //! Domain model for context-switch.
 //!
-//! Core types: [`Span`], [`Project`], [`Tag`], and the canonical [`Document`]
+//! Core types: [`Span`], [`Project`], [`Tag`], and the canonical [`Logbook`]
 //! that aggregates them. Every mutation takes an explicit `at` timestamp so
 //! timer actions captured while offline can be replayed faithfully against
 //! canonical data. The Python bindings expose the same types and rules.
@@ -19,7 +19,7 @@ use crate::exceptions;
 /// The only schema version this library reads and writes.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Errors produced by domain mutations and document validation.
+/// Errors produced by domain mutations and logbook validation.
 #[derive(Debug, Error)]
 pub enum DomainError {
     /// A timer is already active; the contained ID is the active span.
@@ -56,7 +56,7 @@ pub enum DomainError {
     /// `active_span_id` does not match the unique unstopped span.
     #[error("active_span_id does not match the unique unstopped span")]
     InconsistentActiveSpan,
-    /// The document's schema version is not supported by this library.
+    /// The logbook's schema version is not supported by this library.
     #[error("unsupported schema version: {0}")]
     UnsupportedSchemaVersion(u32),
 }
@@ -90,7 +90,7 @@ fn parse_uuid_vec(values: Option<Vec<String>>) -> PyResult<Vec<Uuid>> {
 pub struct Project {
     /// Stable identity; never reused.
     pub id: Uuid,
-    /// Display name; case-insensitively unique within a document.
+    /// Display name; case-insensitively unique within a logbook.
     #[pyo3(get)]
     pub name: String,
     /// Archived projects are hidden from pickers but keep their history.
@@ -140,7 +140,7 @@ impl Project {
 pub struct Tag {
     /// Stable identity; never reused.
     pub id: Uuid,
-    /// Display name; case-insensitively unique within a document.
+    /// Display name; case-insensitively unique within a logbook.
     #[pyo3(get)]
     pub name: String,
     /// Archived tags are hidden from pickers but keep their history.
@@ -278,18 +278,18 @@ impl Span {
     }
 }
 
-/// The canonical versioned data document: projects, tags, spans, and the
+/// The canonical versioned data logbook: projects, tags, spans, and the
 /// identity of the active span.
 ///
 /// `active_span_id` is the authoritative pointer to the one active span and
 /// must always agree with `stopped_at`: it is either `None` with no unstopped
 /// span, or it points at the unique span whose `stopped_at` is `None`. It only
 /// changes as part of a switch (old span stopped, new one started at the same
-/// instant) or a stop (cleared to `None`). A document where it disagrees with
-/// the spans is corrupt; [`Document::validate`] detects that.
+/// instant) or a stop (cleared to `None`). A logbook where it disagrees with
+/// the spans is corrupt; [`Logbook::validate`] detects that.
 #[pyclass]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Document {
+pub struct Logbook {
     #[pyo3(get)]
     pub schema_version: u32,
     /// Monotonic commit counter; owned by the storage provider.
@@ -301,13 +301,13 @@ pub struct Document {
     pub spans: BTreeMap<Uuid, Span>,
 }
 
-impl Default for Document {
+impl Default for Logbook {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Document {
+impl Logbook {
     pub fn new() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
@@ -325,7 +325,7 @@ impl Document {
     }
 
     /// Check every domain invariant. Providers run this on read and before
-    /// commit, so a document that passes is safe to treat as canonical.
+    /// commit, so a logbook that passes is safe to treat as canonical.
     pub fn validate(&self) -> Result<(), DomainError> {
         if self.schema_version != SCHEMA_VERSION {
             return Err(DomainError::UnsupportedSchemaVersion(self.schema_version));
@@ -439,7 +439,7 @@ impl Document {
     /// Start a new active timer at `at`.
     ///
     /// Fails with [`DomainError::AlreadyActive`] if a timer is running; the
-    /// caller must [`Document::switch`] instead. `project_id` may be `None`
+    /// caller must [`Logbook::switch`] instead. `project_id` may be `None`
     /// (unassigned time stays visible for later classification).
     pub fn start_timer(
         &mut self,
@@ -524,9 +524,9 @@ impl Document {
     ///
     /// `stopped_at` may only be changed on an already-stopped span (to correct
     /// a recorded stop time); it can never be set on the active span or
-    /// cleared — stopping goes through [`Document::stop_timer`] or
-    /// [`Document::switch`]. To clear a span's project use
-    /// [`Document::unassign_span`].
+    /// cleared — stopping goes through [`Logbook::stop_timer`] or
+    /// [`Logbook::switch`]. To clear a span's project use
+    /// [`Logbook::unassign_span`].
     pub fn edit_span(
         &mut self,
         span_id: Uuid,
@@ -576,7 +576,7 @@ impl Document {
     /// Insert an already-completed span without touching the active timer.
     ///
     /// This is how a client records time that was not tracked live; unlike
-    /// [`Document::start_timer`] it does not require the timer to be idle.
+    /// [`Logbook::start_timer`] it does not require the timer to be idle.
     pub fn add_span(
         &mut self,
         started_at: DateTime<Utc>,
@@ -735,7 +735,7 @@ fn find_duplicate<'a>(names: impl Iterator<Item = &'a String>) -> Option<String>
 }
 
 #[pymethods]
-impl Document {
+impl Logbook {
     #[new]
     fn py_new() -> Self {
         Self::new()
@@ -908,7 +908,7 @@ impl Document {
         serde_json::to_string_pretty(self).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    /// Parse a document from its canonical JSON representation.
+    /// Parse a logbook from its canonical JSON representation.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         serde_json::from_str(json).map_err(|e| PyValueError::new_err(e.to_string()))
@@ -916,7 +916,7 @@ impl Document {
 
     fn __repr__(&self) -> String {
         format!(
-            "Document(revision={}, projects={}, tags={}, spans={}, active_span_id={:?})",
+            "Logbook(revision={}, projects={}, tags={}, spans={}, active_span_id={:?})",
             self.revision,
             self.projects.len(),
             self.tags.len(),
@@ -936,417 +936,445 @@ mod tests {
 
     #[test]
     fn start_then_stop() {
-        let mut doc = Document::new();
-        let id = doc.start_timer(at(0), None, vec![]).unwrap();
-        assert_eq!(doc.active_span_id, Some(id));
-        assert!(doc.active_span().unwrap().is_active());
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        assert_eq!(logbook.active_span_id, Some(id));
+        assert!(logbook.active_span().unwrap().is_active());
 
-        let stopped = doc.stop_timer(at(60)).unwrap();
+        let stopped = logbook.stop_timer(at(60)).unwrap();
         assert_eq!(stopped, id);
-        assert_eq!(doc.active_span_id, None);
-        assert_eq!(doc.spans[&id].stopped_at, Some(at(60)));
-        doc.validate().unwrap();
+        assert_eq!(logbook.active_span_id, None);
+        assert_eq!(logbook.spans[&id].stopped_at, Some(at(60)));
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn start_while_active_errors() {
-        let mut doc = Document::new();
-        doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        logbook.start_timer(at(0), None, vec![]).unwrap();
         assert!(matches!(
-            doc.start_timer(at(10), None, vec![]),
+            logbook.start_timer(at(10), None, vec![]),
             Err(DomainError::AlreadyActive(_))
         ));
     }
 
     #[test]
     fn stop_without_active_errors() {
-        let mut doc = Document::new();
+        let mut logbook = Logbook::new();
         assert!(matches!(
-            doc.stop_timer(at(0)),
+            logbook.stop_timer(at(0)),
             Err(DomainError::NoActiveTimer)
         ));
     }
 
     #[test]
     fn switch_stops_and_starts_at_same_instant() {
-        let mut doc = Document::new();
-        let project = doc.add_project("work", at(0)).unwrap();
-        let tag = doc.add_tag("focus", at(0)).unwrap();
-        let first = doc.start_timer(at(0), Some(project), vec![]).unwrap();
-        let second = doc.switch(at(30), None, vec![tag]).unwrap();
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", at(0)).unwrap();
+        let tag = logbook.add_tag("focus", at(0)).unwrap();
+        let first = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
+        let second = logbook.switch(at(30), None, vec![tag]).unwrap();
 
-        assert_eq!(doc.spans[&first].stopped_at, Some(at(30)));
-        assert_eq!(doc.spans[&second].started_at, at(30));
-        assert_eq!(doc.spans[&second].tag_ids, vec![tag]);
-        assert_eq!(doc.active_span_id, Some(second));
-        doc.validate().unwrap();
+        assert_eq!(logbook.spans[&first].stopped_at, Some(at(30)));
+        assert_eq!(logbook.spans[&second].started_at, at(30));
+        assert_eq!(logbook.spans[&second].tag_ids, vec![tag]);
+        assert_eq!(logbook.active_span_id, Some(second));
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn switch_without_active_starts() {
-        let mut doc = Document::new();
-        let id = doc.switch(at(5), None, vec![]).unwrap();
-        assert_eq!(doc.active_span_id, Some(id));
-        assert!(doc.spans[&id].is_active());
+        let mut logbook = Logbook::new();
+        let id = logbook.switch(at(5), None, vec![]).unwrap();
+        assert_eq!(logbook.active_span_id, Some(id));
+        assert!(logbook.spans[&id].is_active());
     }
 
     #[test]
     fn switch_rejects_stop_before_start() {
-        let mut doc = Document::new();
-        doc.start_timer(at(100), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        logbook.start_timer(at(100), None, vec![]).unwrap();
         assert!(matches!(
-            doc.switch(at(50), None, vec![]),
+            logbook.switch(at(50), None, vec![]),
             Err(DomainError::InvalidTimeRange)
         ));
-        assert!(doc.active_span().is_some());
+        assert!(logbook.active_span().is_some());
     }
 
     #[test]
     fn edit_span_updates_fields() {
-        let mut doc = Document::new();
-        let project = doc.add_project("work", at(0)).unwrap();
-        let other = doc.add_project("play", at(0)).unwrap();
-        let tag = doc.add_tag("x", at(0)).unwrap();
-        let id = doc.start_timer(at(0), Some(project), vec![]).unwrap();
-        doc.stop_timer(at(100)).unwrap();
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", at(0)).unwrap();
+        let other = logbook.add_project("play", at(0)).unwrap();
+        let tag = logbook.add_tag("x", at(0)).unwrap();
+        let id = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
+        logbook.stop_timer(at(100)).unwrap();
 
-        doc.edit_span(
-            id,
-            at(200),
-            Some(at(10)),
-            Some(at(90)),
-            Some(other),
-            Some(vec![tag]),
-        )
-        .unwrap();
-        let span = &doc.spans[&id];
+        logbook
+            .edit_span(
+                id,
+                at(200),
+                Some(at(10)),
+                Some(at(90)),
+                Some(other),
+                Some(vec![tag]),
+            )
+            .unwrap();
+        let span = &logbook.spans[&id];
         assert_eq!(span.started_at, at(10));
         assert_eq!(span.stopped_at, Some(at(90)));
         assert_eq!(span.project_id, Some(other));
         assert_eq!(span.tag_ids, vec![tag]);
-        doc.validate().unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn edit_span_cannot_stop_active_span() {
-        let mut doc = Document::new();
-        let id = doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
         assert!(matches!(
-            doc.edit_span(id, at(10), None, Some(at(50)), None, None),
+            logbook.edit_span(id, at(10), None, Some(at(50)), None, None),
             Err(DomainError::InvalidStoppedAtEdit)
         ));
-        assert!(doc.spans[&id].is_active());
+        assert!(logbook.spans[&id].is_active());
     }
 
     #[test]
     fn edit_span_rejects_inverted_range() {
-        let mut doc = Document::new();
-        let id = doc.start_timer(at(0), None, vec![]).unwrap();
-        doc.stop_timer(at(100)).unwrap();
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.stop_timer(at(100)).unwrap();
         assert!(matches!(
-            doc.edit_span(id, at(200), Some(at(150)), None, None, None),
+            logbook.edit_span(id, at(200), Some(at(150)), None, None, None),
             Err(DomainError::InvalidTimeRange)
         ));
     }
 
     #[test]
     fn add_span_records_completed_span_without_touching_active() {
-        let mut doc = Document::new();
-        let project = doc.add_project("work", at(0)).unwrap();
-        let active = doc.start_timer(at(500), Some(project), vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", at(0)).unwrap();
+        let active = logbook.start_timer(at(500), Some(project), vec![]).unwrap();
 
-        let added = doc
+        let added = logbook
             .add_span(at(0), at(100), Some(project), vec![], at(600))
             .unwrap();
-        assert_eq!(doc.spans[&added].stopped_at, Some(at(100)));
-        assert_eq!(doc.active_span_id, Some(active));
+        assert_eq!(logbook.spans[&added].stopped_at, Some(at(100)));
+        assert_eq!(logbook.active_span_id, Some(active));
 
         assert!(matches!(
-            doc.add_span(at(200), at(100), None, vec![], at(600)),
+            logbook.add_span(at(200), at(100), None, vec![], at(600)),
             Err(DomainError::InvalidTimeRange)
         ));
         assert!(matches!(
-            doc.add_span(at(0), at(100), Some(Uuid::new_v4()), vec![], at(600)),
+            logbook.add_span(at(0), at(100), Some(Uuid::new_v4()), vec![], at(600)),
             Err(DomainError::ProjectNotFound(_))
         ));
-        doc.validate().unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn add_span_rejects_overlapping_spans() {
-        let mut doc = Document::new();
-        doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        logbook
+            .add_span(at(0), at(100), None, vec![], at(0))
+            .unwrap();
         for (start, end) in [(50, 150), (10, 50), (0, 200)] {
             assert!(
                 matches!(
-                    doc.add_span(at(start), at(end), None, vec![], at(0)),
+                    logbook.add_span(at(start), at(end), None, vec![], at(0)),
                     Err(DomainError::Overlap(_))
                 ),
                 "span {start}–{end} must be rejected as overlapping"
             );
         }
         // Touching boundaries do not overlap.
-        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
-        doc.add_span(at(300), at(400), None, vec![], at(0)).unwrap();
-        doc.validate().unwrap();
+        logbook
+            .add_span(at(100), at(200), None, vec![], at(0))
+            .unwrap();
+        logbook
+            .add_span(at(300), at(400), None, vec![], at(0))
+            .unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn add_span_rejects_overlap_with_active_timer() {
-        let mut doc = Document::new();
-        doc.start_timer(at(100), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        logbook.start_timer(at(100), None, vec![]).unwrap();
         // The running timer occupies everything from its start onward.
         assert!(matches!(
-            doc.add_span(at(150), at(200), None, vec![], at(150)),
+            logbook.add_span(at(150), at(200), None, vec![], at(150)),
             Err(DomainError::Overlap(_))
         ));
         // A span ending exactly at the timer's start is fine.
-        doc.add_span(at(0), at(100), None, vec![], at(150)).unwrap();
-        doc.validate().unwrap();
+        logbook
+            .add_span(at(0), at(100), None, vec![], at(150))
+            .unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn edit_span_rejects_overlap() {
-        let mut doc = Document::new();
-        let a = doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
-        let b = doc.add_span(at(200), at(300), None, vec![], at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        let a = logbook
+            .add_span(at(0), at(100), None, vec![], at(0))
+            .unwrap();
+        let b = logbook
+            .add_span(at(200), at(300), None, vec![], at(0))
+            .unwrap();
         assert!(matches!(
-            doc.edit_span(b, at(400), Some(at(50)), None, None, None),
+            logbook.edit_span(b, at(400), Some(at(50)), None, None, None),
             Err(DomainError::Overlap(_))
         ));
         assert!(matches!(
-            doc.edit_span(a, at(400), None, Some(at(250)), None, None),
+            logbook.edit_span(a, at(400), None, Some(at(250)), None, None),
             Err(DomainError::Overlap(_))
         ));
         // Moving b's start exactly to a's end is allowed, and a span never
         // overlaps itself.
-        doc.edit_span(b, at(400), Some(at(100)), None, None, None)
+        logbook
+            .edit_span(b, at(400), Some(at(100)), None, None, None)
             .unwrap();
-        doc.edit_span(a, at(400), Some(at(10)), Some(at(90)), None, None)
+        logbook
+            .edit_span(a, at(400), Some(at(10)), Some(at(90)), None, None)
             .unwrap();
-        doc.validate().unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn start_timer_rejects_start_before_a_recorded_span_ends() {
-        let mut doc = Document::new();
-        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        logbook
+            .add_span(at(100), at(200), None, vec![], at(0))
+            .unwrap();
         assert!(matches!(
-            doc.start_timer(at(150), None, vec![]),
+            logbook.start_timer(at(150), None, vec![]),
             Err(DomainError::Overlap(_))
         ));
         // Starting exactly when the recorded span ends is fine.
-        doc.start_timer(at(200), None, vec![]).unwrap();
-        doc.validate().unwrap();
+        logbook.start_timer(at(200), None, vec![]).unwrap();
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn stop_timer_rejects_overlap_with_recorded_span() {
-        let mut doc = Document::new();
-        let active = doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        let active = logbook.start_timer(at(0), None, vec![]).unwrap();
         // Inject a span overlapping the timer's future, bypassing
         // add_span's check: the mutation must still enforce the invariant.
         let mut stray = Span::new(at(50), None, vec![]);
         stray.stopped_at = Some(at(100));
-        doc.spans.insert(stray.id, stray);
+        logbook.spans.insert(stray.id, stray);
         assert!(matches!(
-            doc.stop_timer(at(150)),
+            logbook.stop_timer(at(150)),
             Err(DomainError::Overlap(_))
         ));
-        assert_eq!(doc.active_span_id, Some(active));
-        assert!(doc.active_span().unwrap().is_active());
+        assert_eq!(logbook.active_span_id, Some(active));
+        assert!(logbook.active_span().unwrap().is_active());
     }
 
     #[test]
     fn switch_rejects_overlap_with_recorded_span() {
         // The new timer may not run into recorded time.
-        let mut doc = Document::new();
-        doc.add_span(at(100), at(200), None, vec![], at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        logbook
+            .add_span(at(100), at(200), None, vec![], at(0))
+            .unwrap();
         assert!(matches!(
-            doc.switch(at(150), None, vec![]),
+            logbook.switch(at(150), None, vec![]),
             Err(DomainError::Overlap(_))
         ));
-        doc.switch(at(200), None, vec![]).unwrap();
+        logbook.switch(at(200), None, vec![]).unwrap();
 
         // Stopping the old timer may not overlap a recorded span either.
-        let mut doc = Document::new();
-        doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        logbook.start_timer(at(0), None, vec![]).unwrap();
         let mut stray = Span::new(at(50), None, vec![]);
         stray.stopped_at = Some(at(100));
-        doc.spans.insert(stray.id, stray);
+        logbook.spans.insert(stray.id, stray);
         assert!(matches!(
-            doc.switch(at(150), None, vec![]),
+            logbook.switch(at(150), None, vec![]),
             Err(DomainError::Overlap(_))
         ));
-        assert!(doc.active_span().unwrap().is_active());
+        assert!(logbook.active_span().unwrap().is_active());
     }
 
     #[test]
     fn validate_rejects_overlapping_spans() {
-        let mut doc = Document::new();
-        let a = doc.add_span(at(0), at(100), None, vec![], at(0)).unwrap();
-        let b = doc.add_span(at(200), at(300), None, vec![], at(0)).unwrap();
-        doc.validate().unwrap();
+        let mut logbook = Logbook::new();
+        let a = logbook
+            .add_span(at(0), at(100), None, vec![], at(0))
+            .unwrap();
+        let b = logbook
+            .add_span(at(200), at(300), None, vec![], at(0))
+            .unwrap();
+        logbook.validate().unwrap();
 
-        doc.spans.get_mut(&b).unwrap().started_at = at(50);
-        assert!(matches!(doc.validate(), Err(DomainError::Overlap(_))));
+        logbook.spans.get_mut(&b).unwrap().started_at = at(50);
+        assert!(matches!(logbook.validate(), Err(DomainError::Overlap(_))));
 
         // The active span runs unbounded: a later span overlaps it.
-        doc.spans.get_mut(&b).unwrap().started_at = at(200);
-        doc.spans.get_mut(&a).unwrap().stopped_at = None;
-        doc.active_span_id = Some(a);
-        assert!(matches!(doc.validate(), Err(DomainError::Overlap(_))));
+        logbook.spans.get_mut(&b).unwrap().started_at = at(200);
+        logbook.spans.get_mut(&a).unwrap().stopped_at = None;
+        logbook.active_span_id = Some(a);
+        assert!(matches!(logbook.validate(), Err(DomainError::Overlap(_))));
     }
 
     #[test]
     fn remove_span_discards_active_timer() {
-        let mut doc = Document::new();
-        let active = doc.start_timer(at(0), None, vec![]).unwrap();
-        doc.remove_span(active).unwrap();
-        assert_eq!(doc.active_span_id, None);
-        assert!(doc.spans.is_empty());
-        doc.validate().unwrap();
+        let mut logbook = Logbook::new();
+        let active = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.remove_span(active).unwrap();
+        assert_eq!(logbook.active_span_id, None);
+        assert!(logbook.spans.is_empty());
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn remove_span_keeps_other_spans_and_active() {
-        let mut doc = Document::new();
-        let first = doc.start_timer(at(0), None, vec![]).unwrap();
-        let second = doc.switch(at(10), None, vec![]).unwrap();
-        doc.remove_span(first).unwrap();
-        assert!(!doc.spans.contains_key(&first));
-        assert_eq!(doc.active_span_id, Some(second));
-        doc.validate().unwrap();
+        let mut logbook = Logbook::new();
+        let first = logbook.start_timer(at(0), None, vec![]).unwrap();
+        let second = logbook.switch(at(10), None, vec![]).unwrap();
+        logbook.remove_span(first).unwrap();
+        assert!(!logbook.spans.contains_key(&first));
+        assert_eq!(logbook.active_span_id, Some(second));
+        logbook.validate().unwrap();
     }
 
     #[test]
     fn remove_span_unknown_errors() {
-        let mut doc = Document::new();
+        let mut logbook = Logbook::new();
         assert!(matches!(
-            doc.remove_span(Uuid::new_v4()),
+            logbook.remove_span(Uuid::new_v4()),
             Err(DomainError::SpanNotFound(_))
         ));
     }
 
     #[test]
     fn unassign_span_clears_project() {
-        let mut doc = Document::new();
-        let project = doc.add_project("work", at(0)).unwrap();
-        let id = doc.start_timer(at(0), Some(project), vec![]).unwrap();
-        doc.stop_timer(at(10)).unwrap();
-        doc.unassign_span(id, at(20)).unwrap();
-        assert_eq!(doc.spans[&id].project_id, None);
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", at(0)).unwrap();
+        let id = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
+        logbook.stop_timer(at(10)).unwrap();
+        logbook.unassign_span(id, at(20)).unwrap();
+        assert_eq!(logbook.spans[&id].project_id, None);
     }
 
     #[test]
     fn project_names_unique_case_insensitive() {
-        let mut doc = Document::new();
-        let work = doc.add_project("Work", at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        let work = logbook.add_project("Work", at(0)).unwrap();
         assert!(matches!(
-            doc.add_project("work", at(0)),
+            logbook.add_project("work", at(0)),
             Err(DomainError::DuplicateProjectName(_))
         ));
-        let personal = doc.add_project("Personal", at(0)).unwrap();
+        let personal = logbook.add_project("Personal", at(0)).unwrap();
         assert!(matches!(
-            doc.rename_project(personal, "WORK", at(1)),
+            logbook.rename_project(personal, "WORK", at(1)),
             Err(DomainError::DuplicateProjectName(_))
         ));
         // Renaming to the same name is fine.
-        doc.rename_project(work, "Work", at(1)).unwrap();
-        doc.rename_project(work, "Work 2", at(1)).unwrap();
+        logbook.rename_project(work, "Work", at(1)).unwrap();
+        logbook.rename_project(work, "Work 2", at(1)).unwrap();
     }
 
     #[test]
     fn tag_names_unique_case_insensitive() {
-        let mut doc = Document::new();
-        doc.add_tag("Focus", at(0)).unwrap();
+        let mut logbook = Logbook::new();
+        logbook.add_tag("Focus", at(0)).unwrap();
         assert!(matches!(
-            doc.add_tag("FOCUS", at(0)),
+            logbook.add_tag("FOCUS", at(0)),
             Err(DomainError::DuplicateTagName(_))
         ));
     }
 
     #[test]
     fn archived_projects_still_block_names() {
-        let mut doc = Document::new();
-        let id = doc.add_project("Work", at(0)).unwrap();
-        doc.set_project_archived(id, true, at(1)).unwrap();
+        let mut logbook = Logbook::new();
+        let id = logbook.add_project("Work", at(0)).unwrap();
+        logbook.set_project_archived(id, true, at(1)).unwrap();
         assert!(matches!(
-            doc.add_project("work", at(2)),
+            logbook.add_project("work", at(2)),
             Err(DomainError::DuplicateProjectName(_))
         ));
     }
 
     #[test]
     fn validate_rejects_inconsistent_active_span() {
-        let mut doc = Document::new();
-        let id = doc.start_timer(at(0), None, vec![]).unwrap();
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
 
         // active_span_id pointing at a stopped span is corrupt.
-        doc.spans.get_mut(&id).unwrap().stopped_at = Some(at(10));
+        logbook.spans.get_mut(&id).unwrap().stopped_at = Some(at(10));
         assert!(matches!(
-            doc.validate(),
+            logbook.validate(),
             Err(DomainError::InconsistentActiveSpan)
         ));
 
         // An unstopped span with no active_span_id is corrupt.
-        doc.active_span_id = None;
-        doc.spans.get_mut(&id).unwrap().stopped_at = None;
+        logbook.active_span_id = None;
+        logbook.spans.get_mut(&id).unwrap().stopped_at = None;
         assert!(matches!(
-            doc.validate(),
+            logbook.validate(),
             Err(DomainError::InconsistentActiveSpan)
         ));
     }
 
     #[test]
     fn validate_rejects_dangling_references() {
-        let mut doc = Document::new();
-        let id = doc.start_timer(at(0), None, vec![]).unwrap();
-        doc.stop_timer(at(10)).unwrap();
-        doc.spans.get_mut(&id).unwrap().project_id = Some(Uuid::new_v4());
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.stop_timer(at(10)).unwrap();
+        logbook.spans.get_mut(&id).unwrap().project_id = Some(Uuid::new_v4());
         assert!(matches!(
-            doc.validate(),
+            logbook.validate(),
             Err(DomainError::ProjectNotFound(_))
         ));
-        doc.spans.get_mut(&id).unwrap().project_id = None;
-        doc.spans.get_mut(&id).unwrap().tag_ids = vec![Uuid::new_v4()];
-        assert!(matches!(doc.validate(), Err(DomainError::TagNotFound(_))));
+        logbook.spans.get_mut(&id).unwrap().project_id = None;
+        logbook.spans.get_mut(&id).unwrap().tag_ids = vec![Uuid::new_v4()];
+        assert!(matches!(
+            logbook.validate(),
+            Err(DomainError::TagNotFound(_))
+        ));
     }
 
     #[test]
     fn validate_rejects_unsupported_schema_version() {
-        let mut doc = Document::new();
-        doc.schema_version = 99;
+        let mut logbook = Logbook::new();
+        logbook.schema_version = 99;
         assert!(matches!(
-            doc.validate(),
+            logbook.validate(),
             Err(DomainError::UnsupportedSchemaVersion(99))
         ));
     }
 
     #[test]
     fn missing_references_rejected_by_mutations() {
-        let mut doc = Document::new();
+        let mut logbook = Logbook::new();
         let bogus = Uuid::new_v4();
         assert!(matches!(
-            doc.start_timer(at(0), Some(bogus), vec![]),
+            logbook.start_timer(at(0), Some(bogus), vec![]),
             Err(DomainError::ProjectNotFound(_))
         ));
         assert!(matches!(
-            doc.start_timer(at(0), None, vec![bogus]),
+            logbook.start_timer(at(0), None, vec![bogus]),
             Err(DomainError::TagNotFound(_))
         ));
-        assert_eq!(doc.active_span_id, None);
+        assert_eq!(logbook.active_span_id, None);
     }
 
     #[test]
-    fn document_json_roundtrip() {
-        let mut doc = Document::new();
-        let project = doc.add_project("work", at(0)).unwrap();
-        let tag = doc.add_tag("focus", at(0)).unwrap();
-        doc.start_timer(at(10), Some(project), vec![tag]).unwrap();
-        let json = serde_json::to_string(&doc).unwrap();
-        let parsed: Document = serde_json::from_str(&json).unwrap();
-        assert_eq!(doc, parsed);
+    fn logbook_json_roundtrip() {
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", at(0)).unwrap();
+        let tag = logbook.add_tag("focus", at(0)).unwrap();
+        logbook
+            .start_timer(at(10), Some(project), vec![tag])
+            .unwrap();
+        let json = serde_json::to_string(&logbook).unwrap();
+        let parsed: Logbook = serde_json::from_str(&json).unwrap();
+        assert_eq!(logbook, parsed);
         assert!(json.contains("\"schema_version\":1"));
         assert!(json.contains("\"active_span_id\""));
     }

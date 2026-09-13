@@ -20,7 +20,7 @@ Scaffold the native Android app in `android/` (currently a README stub).
 ### Dashboard web app
 
 New reporting/visualization client. The dashboard is a client, not a
-reporting service — it reads the document through the storage provider
+reporting service — it reads the logbook through the storage provider
 interface and computes reports on demand (`architecture.md` §3, §8).
 
 - Initial scope: span log, totals by project/tag, time-series by day,
@@ -57,7 +57,7 @@ behaviors that did not land in the first version:
   conformance check that fails loudly if a configured backend silently
   ignores `IfAbsent`/`IfMatch` instead of producing a vacuous pass.
 - **Passphrase rotation** (stories 46-47, the PRD's "Open decision"): no
-  document-layer operation exists yet to rotate the passphrase through the
+  logbook-layer operation exists yet to rotate the passphrase through the
   normal conditional-commit path; `EnvelopeCipher::seal`'s `KeyState`
   threading already supports adding a wrapped key (see
   `key_rotation_and_preservation` in
@@ -92,4 +92,4 @@ Currently every mutation requires a reachable provider. Per
   chosen
 - **Encryption wrapper**: optional encryption at the provider boundary
   (§10)
-- **Schema migration policy**: for the versioned JSON document (§12)
+- **Schema migration policy**: for the versioned JSON logbook (§12)

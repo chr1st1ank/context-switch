@@ -14,28 +14,28 @@ def test_provider_lifecycle(tmp_path) -> None:
 
     snapshot = provider.read()
     assert snapshot.version == "0"
-    assert snapshot.document.active_span_id is None
+    assert snapshot.logbook.active_span_id is None
 
-    document = snapshot.document
-    project = document.add_project("work", NOW)
-    tag = document.add_tag("focus", NOW)
-    span_id = document.start_timer(NOW, project_id=project, tag_ids=[tag])
-    assert document.active_span_id == span_id
+    logbook = snapshot.logbook
+    project = logbook.add_project("work", NOW)
+    tag = logbook.add_tag("focus", NOW)
+    span_id = logbook.start_timer(NOW, project_id=project, tag_ids=[tag])
+    assert logbook.active_span_id == span_id
 
-    version = provider.commit(document, snapshot.version)
+    version = provider.commit(logbook, snapshot.version)
     assert version == "1"
 
     reread = provider.read()
     assert reread.version == "1"
-    assert reread.document.active_span_id == span_id
-    active = reread.document.active_span()
+    assert reread.logbook.active_span_id == span_id
+    active = reread.logbook.active_span()
     assert active is not None
     assert active.is_active
     assert active.project_id == project
     assert active.tag_ids == [tag]
 
     # A commit against the stale version is rejected.
-    stale = reread.document
+    stale = reread.logbook
     stale.add_tag("late", NOW)
     with pytest.raises(core.StorageError):
         provider.commit(stale, snapshot.version)
@@ -44,44 +44,44 @@ def test_provider_lifecycle(tmp_path) -> None:
 def test_switch_and_stop(tmp_path) -> None:
     provider = core.LocalFsProvider(str(tmp_path / "data.json"))
     snapshot = provider.read()
-    document = snapshot.document
-    document.start_timer(NOW)
+    logbook = snapshot.logbook
+    logbook.start_timer(NOW)
     later = NOW + timedelta(hours=1)
-    second = document.switch(later)
-    document.stop_timer(later + timedelta(hours=2))
-    provider.commit(document, snapshot.version)
+    second = logbook.switch(later)
+    logbook.stop_timer(later + timedelta(hours=2))
+    provider.commit(logbook, snapshot.version)
 
-    document = provider.read().document
-    assert document.active_span_id is None
-    spans = {s.id: s for s in document.spans()}
+    logbook = provider.read().logbook
+    assert logbook.active_span_id is None
+    spans = {s.id: s for s in logbook.spans()}
     assert spans[second].started_at == later
     assert len(spans) == 2
 
 
 def test_domain_errors_raise_domain_error() -> None:
-    document = core.Document()
+    logbook = core.Logbook()
     with pytest.raises(core.DomainError):
-        document.stop_timer(NOW)
-    document.start_timer(NOW)
+        logbook.stop_timer(NOW)
+    logbook.start_timer(NOW)
     with pytest.raises(core.DomainError):
-        document.start_timer(NOW)
-    document.add_project("a", NOW)
+        logbook.start_timer(NOW)
+    logbook.add_project("a", NOW)
     with pytest.raises(core.DomainError):
-        document.add_project("A", NOW)
+        logbook.add_project("A", NOW)
 
 
 def test_datetime_round_trip() -> None:
-    document = core.Document()
-    span_id = document.start_timer(NOW)
-    span = document.span(span_id)
+    logbook = core.Logbook()
+    span_id = logbook.start_timer(NOW)
+    span = logbook.span(span_id)
     assert span is not None
     assert span.started_at == NOW
     assert span.stopped_at is None
 
 
 def test_json_round_trip() -> None:
-    document = core.Document()
-    document.add_project("work", NOW)
-    document.start_timer(NOW)
-    parsed = core.Document.from_json(document.to_json())
-    assert parsed.spans()[0].id == document.spans()[0].id
+    logbook = core.Logbook()
+    logbook.add_project("work", NOW)
+    logbook.start_timer(NOW)
+    parsed = core.Logbook.from_json(logbook.to_json())
+    assert parsed.spans()[0].id == logbook.spans()[0].id
