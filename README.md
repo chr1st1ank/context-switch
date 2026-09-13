@@ -6,6 +6,10 @@ A single-user, multi-device time tracking system with synchronized storage.
 [![CodeQL](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 
+Start a timer on your phone while grabbing coffee, switch tasks from your
+terminal, and review the week from either device — every client shares the
+same continuously synced logbook, and exactly one timer is ever running.
+
 ## Overview
 
 **context-switch** provides time tracking across multiple devices with a synchronized data store. The user can:
@@ -18,9 +22,61 @@ A single-user, multi-device time tracking system with synchronized storage.
 ### Components
 
 - **cosw**: Command-line client for laptops (Python/Click)
-- **Android**: Native Android application
+- **Android**: Native app (Kotlin/Compose over the Rust core via UniFFI)
 - **Dashboard**: Reporting and visualization (planned)
 - **contextswitch-core**: Shared domain model and storage provider interface (Rust with Python bindings)
+
+## A day with context-switch
+
+### On the phone — the Android app
+
+<img src="docs/img/Screenshot_20260914-001907.png" alt="Android app timer screen: project and tag chips above a Start button" align="right" width="280">
+
+The Android client mirrors the same workflow: pick a project, optionally add
+tags, tap **Start**.
+
+- The running timer lives in a foreground service with a persistent,
+  live-ticking notification
+- Timer, log, and project/tag management in one app
+- Built on the same Rust core via UniFFI — same logbook, same rules
+
+<br clear="right">
+
+### In the terminal — `cosw`
+
+```console
+$ cosw start web-app +feature
+created project web-app
+created tag feature
+Timer started on web-app (+feature) at 08:32
+
+$ cosw switch meetings
+created project meetings
+Switched from web-app (+feature) to meetings at 10:10
+
+$ cosw stop
+Stopped meetings at 10:58 (48m 12s)
+
+$ cosw resume -2
+Resumed web-app (+feature) at 11:04
+```
+
+Projects and tags are created on first use; `-2` picks a span by recency.
+At the end of the day, the logbook doubles as a report:
+
+```console
+$ cosw log --range day
+d21c5f83  2026-09-14 11:04 – 12:20             web-app (+feature)  1h 16m
+9b4e77a0  2026-09-14 10:10 – 10:58             meetings            48m 12s
+3f8a2c1d  2026-09-14 08:32 – 10:10             web-app (+feature)  1h 38m
+
+$ cosw report --range week
+web-app       14h 42m
+meetings      6h 10m
+orga          4h 03m
+(unassigned)  2h 12m
+total         27h 07m
+```
 
 ## Quick start
 
@@ -36,10 +92,13 @@ uv sync
 
 ```bash
 uv run cosw --help
-uv run cosw start --project "My Project"
+uv run cosw start "My Project" +tag
 uv run cosw stop
-uv run cosw switch --project "Another Project"
+uv run cosw switch "Another Project"
 ```
+
+See [A day with context-switch](#a-day-with-context-switch) above for a
+fuller tour of `status`, `resume`, `log`, and `report`.
 
 ### Running tests
 
