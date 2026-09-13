@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "dev.contextswitch"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.contextswitch"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
     }
@@ -53,16 +53,15 @@ tasks.register<Exec>("cargoNdkBuild") {
 tasks.named("preBuild") { dependsOn("cargoNdkBuild") }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("androidx.compose:compose-bom:2025.08.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.core:core:1.15.0")
+    implementation("androidx.activity:activity-compose:1.12.0")
+    implementation("androidx.navigation:navigation-compose:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation("androidx.core:core-ktx:1.17.0")
     // UniFFI-generated Kotlin bindings load the Rust cdylib through JNA.
     implementation("net.java.dev.jna:jna:5.15.0@aar")
     debugImplementation("androidx.compose.ui:ui-tooling")

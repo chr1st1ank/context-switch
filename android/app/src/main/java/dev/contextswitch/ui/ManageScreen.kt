@@ -17,7 +17,7 @@ import dev.contextswitch.LogbookStore
 @Composable
 fun ManageScreen(store: LogbookStore) {
     val snap by store.snapshot.collectAsState()
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableIntStateOf(0) }
     var showAdd by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {

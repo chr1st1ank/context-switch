@@ -36,7 +36,7 @@ fun TimerScreen(store: LogbookStore) {
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (active != null) {
-            var elapsed by remember { mutableStateOf(0L) }
+            var elapsed by remember { mutableLongStateOf(0L) }
             LaunchedEffect(active.startedAt) {
                 val start = parseTime(active.startedAt).toInstant()
                 while (true) {

@@ -34,6 +34,7 @@ class TimerService : Service() {
             )
         }
 
+        @android.annotation.SuppressLint("ImplicitSamInstance")
         fun stop(context: Context) {
             context.stopService(Intent(context, TimerService::class.java))
         }
