@@ -9,7 +9,7 @@ tasks:
   develop:
     desc: Build and install the Python bindings into the workspace venv
     cmds:
-      - uv run maturin develop
+      - uv run maturin develop --release
 
   lint:
     desc: Lint Rust code

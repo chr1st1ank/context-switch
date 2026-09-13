@@ -20,7 +20,6 @@ timer notification. Remaining:
 - Background sync / conflict UX beyond surfacing `MobileError.Conflict`
 - Play Store signing/distribution (currently sideloaded debug APK)
 - Graceful handling of a timer that was started/stopped remotely (currently error message)
-- Latency optimization of sync actions
 
 ### Dashboard web app
 
@@ -41,6 +40,13 @@ but the PRD (`docs/prd-s3-provider.md`, now removed — see the ADRs and
 `docs/envelope-format.md` for its normative content) identified several
 behaviors that did not land in the first version:
 
+- **Sync latency follow-ups** (post-ADR-0010): a mutation is now 2 requests
+  (read + conditional commit). Remaining levers if more speed is needed:
+  cache the derived master key per provider instance to skip one Argon2
+  derivation per commit (keeps key material resident in process memory),
+  a local snapshot cache so a mutation is a single conditional PUT
+  (ties into the offline-queue work in architecture §7), and a pooling
+  HTTP client — `minreq` opens a fresh TCP/TLS connection per request.
 - **Retry policy** (stories 39-41): transient S3 failures (network errors,
   5xx) are surfaced immediately as `StorageError::Unavailable` rather than
   retried with bounded, jittered backoff; conflicts/auth failures should

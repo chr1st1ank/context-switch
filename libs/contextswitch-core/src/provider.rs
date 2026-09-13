@@ -4,7 +4,8 @@ use crate::blob::{BlobStore, Precondition};
 use crate::crypto::{Cipher, CryptoError, KeyState};
 use crate::domain::Logbook;
 use crate::storage::{StorageError, StorageProvider, StorageSnapshot};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 /// Structural envelope problems (bad header, truncated data, unsupported
 /// features) are reported as corruption; only an actual AEAD failure —
@@ -22,10 +23,46 @@ impl From<CryptoError> for StorageError {
     }
 }
 
+/// The blob head as last observed by this instance: logbook revision,
+/// blob ETag, and the envelope [`KeyState`] needed to re-seal.
+///
+/// Every mutation follows read → mutate → commit, so the commit almost
+/// always targets the head this instance just read. Caching it lets
+/// `commit` skip a redundant GET; the blob store's conditional PUT still
+/// enforces atomicity, so a stale cache can only produce a `Conflict`,
+/// never a lost update.
+struct CachedHead {
+    /// Opaque version — the logbook revision, `"0"` when the blob is absent.
+    version: String,
+    /// ETag to precondition the write on; `None` means the blob is absent.
+    etag: Option<String>,
+    /// Key state to reuse in `seal`; `None` when the blob is absent or
+    /// was written by the identity cipher.
+    key_state: Option<KeyState>,
+}
+
+fn timing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("COSW_TIMING").is_some())
+}
+
+/// Run `f`, logging its wall time as `cosw-timing <phase>` when the
+/// `COSW_TIMING` env var is set. Used to attribute the latency of remote
+/// providers across transport and crypto phases.
+fn timed<T>(phase: &str, f: impl FnOnce() -> Result<T, StorageError>) -> Result<T, StorageError> {
+    let start = Instant::now();
+    let result = f();
+    if timing_enabled() {
+        eprintln!("cosw-timing {phase}: {:?}", start.elapsed());
+    }
+    result
+}
+
 pub struct GenericProvider {
     pub blob_store: Arc<dyn BlobStore>,
     pub cipher: Arc<dyn Cipher>,
     pub passphrase: Option<String>,
+    head: Mutex<Option<CachedHead>>,
 }
 
 impl GenericProvider {
@@ -38,29 +75,58 @@ impl GenericProvider {
             blob_store,
             cipher,
             passphrase,
+            head: Mutex::new(None),
         }
+    }
+
+    /// The cached head, if it still matches `expected_version`.
+    fn head_for(&self, expected_version: &str) -> Option<CachedHead> {
+        let head = self.head.lock().unwrap();
+        match head.as_ref() {
+            Some(h) if h.version == expected_version => Some(CachedHead {
+                version: h.version.clone(),
+                etag: h.etag.clone(),
+                key_state: h.key_state.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn set_head(&self, version: String, etag: Option<String>, key_state: Option<KeyState>) {
+        *self.head.lock().unwrap() = Some(CachedHead {
+            version,
+            etag,
+            key_state,
+        });
+    }
+
+    fn invalidate_head(&self) {
+        *self.head.lock().unwrap() = None;
     }
 }
 
 impl StorageProvider for GenericProvider {
     fn read(&self) -> Result<StorageSnapshot, StorageError> {
-        let got = self.blob_store.get()?;
-        let (plaintext, _key_state) = match got {
+        let got = timed("blob.get", || self.blob_store.get())?;
+        let (plaintext, key_state) = match &got {
             Some((bytes, _etag)) => {
                 let passphrase = self.passphrase.as_deref().unwrap_or("");
-                self.cipher.open(&bytes, passphrase)?
+                timed("cipher.open", || {
+                    self.cipher
+                        .open(bytes, passphrase)
+                        .map_err(StorageError::from)
+                })?
             }
-            None => {
-                // If it's absent, bootstrap as empty v1 logbook.
-                let logbook = Logbook::new();
-                let json = serde_json::to_string_pretty(&logbook)
-                    .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-                let dummy_state = KeyState {
+            // If it's absent, bootstrap as empty v1 logbook.
+            None => (
+                serde_json::to_string_pretty(&Logbook::new())
+                    .map_err(|e| StorageError::Corrupt(e.to_string()))?
+                    .into_bytes(),
+                KeyState {
                     active_key_id: "identity".to_string(),
                     keys: vec![],
-                };
-                (json.into_bytes(), dummy_state)
-            }
+                },
+            ),
         };
 
         let json_str = std::str::from_utf8(&plaintext).map_err(|_| {
@@ -74,36 +140,56 @@ impl StorageProvider for GenericProvider {
             .validate()
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
+        let version = logbook.revision.to_string();
+        match &got {
+            Some((_, etag)) => self.set_head(version.clone(), Some(etag.clone()), Some(key_state)),
+            None => self.set_head(version.clone(), None, None),
+        }
+
         // The opaque version string remains the logbook revision, not the ETag.
-        Ok(StorageSnapshot {
-            version: logbook.revision.to_string(),
-            logbook,
-        })
+        Ok(StorageSnapshot { version, logbook })
     }
 
     fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
         logbook.validate()?;
 
-        let got = self.blob_store.get()?;
         let passphrase = self.passphrase.as_deref().unwrap_or("");
 
-        let (current_logbook, current_etag, key_state) = match got {
-            Some((bytes, etag)) => {
-                let (plaintext, state) = self.cipher.open(&bytes, passphrase)?;
-                let json_str = std::str::from_utf8(&plaintext).map_err(|_| {
-                    StorageError::Corrupt("decrypted payload is not valid UTF-8".to_string())
-                })?;
-                let logbook: Logbook = serde_json::from_str(json_str)
-                    .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-                (Some(logbook), Some(etag), Some(state))
+        // Fast path: the caller commits against the head this instance just
+        // read — the normal read → mutate → commit shape — so the GET that
+        // would only re-fetch what we already have is skipped. The blob's
+        // own conditional write still enforces atomicity; a stale head
+        // surfaces as `StorageError::Conflict`, never a lost update.
+        let (base_revision, current_etag, key_state) = match self.head_for(expected_version) {
+            Some(head) => (
+                expected_version.parse::<u64>().unwrap_or(0),
+                head.etag,
+                head.key_state,
+            ),
+            None => {
+                let got = timed("blob.get", || self.blob_store.get())?;
+                match got {
+                    Some((bytes, etag)) => {
+                        let (plaintext, state) = timed("cipher.open", || {
+                            self.cipher
+                                .open(&bytes, passphrase)
+                                .map_err(StorageError::from)
+                        })?;
+                        let json_str = std::str::from_utf8(&plaintext).map_err(|_| {
+                            StorageError::Corrupt(
+                                "decrypted payload is not valid UTF-8".to_string(),
+                            )
+                        })?;
+                        let current: Logbook = serde_json::from_str(json_str)
+                            .map_err(|e| StorageError::Corrupt(e.to_string()))?;
+                        (current.revision, Some(etag), Some(state))
+                    }
+                    None => (0, None, None),
+                }
             }
-            None => (None, None, None),
         };
 
-        let actual_version = current_logbook
-            .as_ref()
-            .map(|d| d.revision.to_string())
-            .unwrap_or_else(|| "0".to_string());
+        let actual_version = base_revision.to_string();
         if actual_version != expected_version {
             return Err(StorageError::Conflict {
                 expected: expected_version.to_string(),
@@ -112,25 +198,46 @@ impl StorageProvider for GenericProvider {
         }
 
         let mut logbook = logbook;
-        logbook.revision = current_logbook
-            .as_ref()
-            .map(|d| d.revision + 1)
-            .unwrap_or(1);
+        logbook.revision = base_revision + 1;
 
         let json = serde_json::to_string_pretty(&logbook)
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
-        let sealed = self
-            .cipher
-            .seal(json.as_bytes(), passphrase, key_state.as_ref())?;
+        let sealed = timed("cipher.seal", || {
+            self.cipher
+                .seal(json.as_bytes(), passphrase, key_state.as_ref())
+                .map_err(StorageError::from)
+        })?;
 
-        let cond = match current_etag {
-            Some(etag) => Precondition::IfMatch(etag),
+        let cond = match &current_etag {
+            Some(etag) => Precondition::IfMatch(etag.clone()),
             None => Precondition::IfAbsent,
         };
 
-        self.blob_store.put(&sealed, cond)?;
-
-        Ok(logbook.revision.to_string())
+        match timed("blob.put", || self.blob_store.put(&sealed, cond)) {
+            Ok(new_etag) => {
+                self.set_head(logbook.revision.to_string(), Some(new_etag), key_state);
+                Ok(logbook.revision.to_string())
+            }
+            Err(e) => {
+                // The blob may have changed (conflict) or the write's
+                // outcome is unknown (transport error); the next operation
+                // must not trust this head.
+                self.invalidate_head();
+                if let StorageError::Conflict { .. } = e {
+                    // Re-read once so the reported `actual` is the revision
+                    // that really won — and the head is fresh for a retry.
+                    let actual = self
+                        .read()
+                        .map(|s| s.version)
+                        .unwrap_or_else(|_| "unknown".to_string());
+                    return Err(StorageError::Conflict {
+                        expected: expected_version.to_string(),
+                        actual,
+                    });
+                }
+                Err(e)
+            }
+        }
     }
 }

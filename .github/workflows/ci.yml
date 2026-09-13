@@ -60,7 +60,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Python bindings
-        run: uv run maturin develop
+        run: uv run maturin develop --release
         working-directory: libs/contextswitch-core
 
       - name: Run tests

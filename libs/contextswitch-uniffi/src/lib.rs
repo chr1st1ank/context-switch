@@ -403,7 +403,10 @@ impl CoswStore {
 
 impl CoswStore {
     /// Read → apply `f` → conditional commit; one automatic retry on
-    /// [`StorageError::Conflict`], then the conflict is surfaced.
+    /// [`StorageError::Conflict`], then the conflict is surfaced. The
+    /// returned snapshot is built from the logbook that was just committed —
+    /// a re-read would fetch exactly those bytes at the cost of a round
+    /// trip.
     fn mutate(
         &self,
         f: impl Fn(&mut Logbook) -> Result<(), DomainError>,
@@ -412,8 +415,17 @@ impl CoswStore {
             let snap = self.provider.read()?;
             let mut lb = snap.logbook.clone();
             f(&mut lb)?;
-            match self.provider.commit(lb, &snap.version) {
-                Ok(_) => return snapshot_rec(self.provider.read()?, &self.location_url),
+            match self.provider.commit(lb.clone(), &snap.version) {
+                Ok(version) => {
+                    lb.revision = version.parse().unwrap_or(lb.revision);
+                    return snapshot_rec(
+                        contextswitch_core::storage::StorageSnapshot {
+                            version,
+                            logbook: lb,
+                        },
+                        &self.location_url,
+                    );
+                }
                 Err(StorageError::Conflict { .. }) if attempt == 0 => continue,
                 Err(e) => return Err(e.into()),
             }
