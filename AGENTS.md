@@ -46,7 +46,10 @@ context-switch/
 │   ├── architecture.md           # System design
 │   ├── design.md                 # Implementation details (TBD)
 │   ├── glossary.md               # Domain language
+│   ├── packaging.md              # How the cosw wheel bundles contextswitch-core
 │   └── decisions/                # Architecture Decision Records
+├── scripts/
+│   └── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
 ├── CONTEXT.md                    # Domain language reference
 ├── AGENTS.md                     # This file
 ├── README.md                     # Project overview
@@ -79,8 +82,12 @@ Component-specific tasks:
 ```bash
 task cli:dev      # run CLI in development mode
 task cli:test     # run CLI tests
+task cli:build    # build the cosw wheel with contextswitch-core baked in
 task core:test    # run core library tests
 ```
+
+See `docs/packaging.md` for how `task cli:build` bundles the unpublished
+`contextswitch-core` library into the `cosw` wheel.
 
 ## Python environment
 
@@ -234,6 +241,7 @@ new features, and remove items from the list as they are implemented.
 
 - Check `docs/architecture.md` for system design
 - Check `docs/backlog.md` for outstanding work items
+- Check `docs/packaging.md` for how the cosw wheel is built
 - Check `CONTEXT.md` for domain language
 - Check existing ADRs in `docs/decisions/`
 - Run `task check` before pushing

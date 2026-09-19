@@ -15,7 +15,15 @@ cosw = { workspace = true }
 contextswitch-core = { workspace = true }
 
 [dependency-groups]
-dev = ["pre-commit", "ruff", "ty", "pytest", "pytest-cov", "maturin>=1.0,<2.0"]
+dev = [
+    "pre-commit",
+    "ruff",
+    "ty",
+    "pytest",
+    "pytest-cov",
+    "maturin>=1.0,<2.0",
+    "wheel>=0.45",
+]
 
 [tool.ruff]
 line-length = 100
@@ -29,4 +37,4 @@ all = "error"
 
 [tool.pytest.ini_options]
 testpaths = ["cli/tests", "libs/*/tests"]
-addopts = "--cov=cli --cov=libs --cov-report=term-missing --cov-fail-under=95"
+addopts = "--cov=cli --cov=libs --cov-report=term-missing --cov-report=xml --cov-fail-under=95"

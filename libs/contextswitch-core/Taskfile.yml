@@ -9,7 +9,12 @@ tasks:
   develop:
     desc: Build and install the Python bindings into the workspace venv
     cmds:
-      - uv run maturin develop --release
+      - uv run maturin develop
+
+  build-wheel:
+    desc: Build the Python bindings as a standalone wheel (for cosw's build)
+    cmds:
+      - uv run maturin build --release --out dist
 
   lint:
     desc: Lint Rust code
@@ -40,3 +45,4 @@ tasks:
     desc: Clean build artifacts
     cmds:
       - cargo clean
+      - rm -rf dist
