@@ -49,6 +49,18 @@ kotlin {
 tasks.register<Exec>("cargoNdkBuild") {
     workingDir = rootDir
     commandLine("bash", "build-rust.sh")
+    inputs.dir("../../libs/contextswitch-core/src")
+    inputs.dir("../../libs/contextswitch-uniffi/src")
+    inputs.files(
+        "../../Cargo.lock",
+        "../../libs/contextswitch-core/Cargo.toml",
+        "../../libs/contextswitch-uniffi/Cargo.toml",
+        "../build-rust.sh",
+    )
+    inputs.property("CS_RUST_PROFILE", providers.environmentVariable("CS_RUST_PROFILE").orElse("release"))
+    inputs.property("CS_ABIS", providers.environmentVariable("CS_ABIS").orElse("arm64-v8a x86_64"))
+    outputs.dir("src/main/jniLibs")
+    outputs.file("src/main/java/dev/contextswitch/contextswitch_uniffi.kt")
 }
 tasks.named("preBuild") { dependsOn("cargoNdkBuild") }
 

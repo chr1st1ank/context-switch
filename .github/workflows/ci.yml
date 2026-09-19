@@ -131,6 +131,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -139,6 +141,11 @@ jobs:
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-android
+          # Profile/ABIs shape target/ contents; the key must reflect them or a
+          # full-match restore blocks saving new artifacts forever.
+          key: ${{ env.CS_RUST_PROFILE }}-${{ env.CS_ABIS }}
 
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
