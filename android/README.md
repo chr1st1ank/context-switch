@@ -40,6 +40,11 @@ task test      # unit tests
 
 Output APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
+`build-rust.sh` honors `CS_RUST_PROFILE` (default `release`) and `CS_ABIS`
+(default `arm64-v8a x86_64`). CI sets `CS_RUST_PROFILE=debug` and
+`CS_ABIS=arm64-v8a` since the debug-APK job needs neither optimized Rust
+nor the emulator-only x86_64 target.
+
 ## Configuration
 
 The app is configured entirely in its Settings screen (S3 bucket, region,
