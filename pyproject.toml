@@ -37,4 +37,4 @@ all = "error"
 
 [tool.pytest.ini_options]
 testpaths = ["cli/tests", "libs/*/tests"]
-addopts = "--cov=cli --cov=libs --cov-report=term-missing --cov-fail-under=95"
+addopts = "--cov=cli --cov=libs --cov-report=term-missing --cov-report=xml --cov-fail-under=95"

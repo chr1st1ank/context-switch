@@ -21,11 +21,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build distributions
-        run: uv run scripts/build-cosw-wheel.py
+        run: task cli:build
 
       # - name: Publish to PyPI
       #   uses: pypa/gh-action-pypi-publish@release/v1

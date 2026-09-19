@@ -1,9 +1,10 @@
 version: "3"
 
 vars:
-  # Gradle 8.10 doesn't run on JDK 26; prefer 21, then 17, then JAVA_HOME.
+  # Gradle 8.10 doesn't run on JDK 26; prefer 21, then 17, then whatever
+  # JAVA_HOME already points at (e.g. set up by actions/setup-java in CI).
   JAVA:
-    sh: for j in /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/java-17-openjdk; do [ -d "$j" ] && echo "$j" && break; done
+    sh: for j in /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/java-17-openjdk "$JAVA_HOME"; do [ -n "$j" ] && [ -d "$j" ] && echo "$j" && break; done
   SDK:
     sh: echo "${ANDROID_HOME:-/opt/android-sdk}"
 

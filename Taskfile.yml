@@ -18,17 +18,27 @@ tasks:
       - uv run ruff check --fix .
       - uv run ruff format .
 
+  pre-commit:
+    desc: Run pre-commit hooks against all files (what CI's lint job runs)
+    cmds:
+      - uv run pre-commit run --all-files
+
   typecheck:
     desc: Type-check everything
     cmds:
       - uv run ty check
 
+  test-python:
+    desc: Run Python tests only (builds the core library bindings first)
+    cmds:
+      - task: core:develop
+      - uv run pytest
+
   test:
     desc: Run all test suites
     cmds:
-      - task: core:develop
+      - task: test-python
       - task: core:test
-      - uv run pytest
 
   check:
     desc: Everything that CI checks
