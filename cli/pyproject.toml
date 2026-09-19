@@ -4,10 +4,17 @@ version = "0.1.0"
 description = "context-switch CLI client for time tracking"
 license = "Apache-2.0"
 requires-python = ">=3.14"
-dependencies = ["click>=8.1.0", "contextswitch-core"]
+dependencies = ["click>=8.1.0"]
 
 [project.scripts]
 cosw = "cosw.cli:main"
+
+# contextswitch-core is compiled and merged into the wheel after the fact by
+# scripts/build-cosw-wheel.py (see cli/Taskfile.yml's `build` task), so it is
+# only a development dependency here (uv installs workspace member dev groups
+# by default), never a published wheel dependency.
+[dependency-groups]
+dev = ["contextswitch-core"]
 
 [tool.uv.sources]
 contextswitch-core = { workspace = true }

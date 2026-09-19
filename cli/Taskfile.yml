@@ -28,6 +28,7 @@ tasks:
       - uv run --package cosw pytest tests --cov=cosw --cov-report=html
 
   build:
-    desc: Build CLI distribution
+    desc: Build CLI distribution (wheel bundles the compiled contextswitch-core)
+    dir: ..
     cmds:
-      - uv build
+      - uv run scripts/build-cosw-wheel.py
