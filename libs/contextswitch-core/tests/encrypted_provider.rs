@@ -121,7 +121,19 @@ fn header_tampering_fails_authentication() {
         .position(|w| w == marker)
         .expect("header JSON must contain a derivation salt");
     let tamper_index = 8 + marker_pos + marker.len(); // first base64 char of the salt
-    data.0[tamper_index] ^= 0x01;
+    // Substitute a different but always-valid base64 character. XOR-flipping
+    // a random base64 char can land outside the base64 alphabet (e.g.
+    // 'A'^1 == '@'): 6 of the 64 chars flip outside the alphabet, a ~9%
+    // per-run flake that fails earlier as InvalidHeader instead of reaching
+    // the AEAD check this test targets. Replacing the first salt char with a
+    // different valid char always changes the decoded salt bytes (base64
+    // char 0 carries the top 6 bits of salt byte 0), so key derivation
+    // yields a wrong KEK and unwrapping fails as DecryptionFailed.
+    data.0[tamper_index] = if data.0[tamper_index] == b'A' {
+        b'B'
+    } else {
+        b'A'
+    };
 
     // Put it back
     blob_store
