@@ -45,6 +45,23 @@ Output APK: `app/build/outputs/apk/debug/app-debug.apk`.
 `CS_ABIS=arm64-v8a` since the debug-APK job needs neither optimized Rust
 nor the emulator-only x86_64 target.
 
+## Release signing
+
+`task release` produces a signed APK when these environment variables are
+set, and an unsigned `app-release-unsigned.apk` otherwise:
+
+- `CS_KEYSTORE_FILE` — path to the upload keystore (`.jks`)
+- `CS_KEYSTORE_PASSWORD` — keystore store password
+- `CS_KEY_ALIAS` — key alias inside the keystore
+- `CS_KEY_PASSWORD` — key password
+
+In CI (`release.yml`), the keystore is decoded from the
+`ANDROID_KEYSTORE_BASE64` GitHub secret into `$RUNNER_TEMP` and the
+passwords/alias come from `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` secrets. The upload key
+is the app's identity for sideloaded distribution — keep it backed up
+and never commit it.
+
 ## Configuration
 
 The app is configured entirely in its Settings screen (S3 bucket, region,

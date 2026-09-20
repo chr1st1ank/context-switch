@@ -3,3 +3,6 @@ app/build/
 app/src/main/jniLibs/
 app/src/main/java/dev/contextswitch/contextswitch_uniffi.kt
 local.properties
+*.jks
+*.keystore
+keystore.properties

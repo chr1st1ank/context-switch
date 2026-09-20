@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val csKeystoreFile = providers.environmentVariable("CS_KEYSTORE_FILE").orNull
+
 android {
     namespace = "dev.contextswitch"
     compileSdk = 36
@@ -16,10 +18,24 @@ android {
         versionName = providers.gradleProperty("versionName").getOrElse("0.1.0")
     }
 
+    signingConfigs {
+        if (csKeystoreFile != null) {
+            create("release") {
+                storeFile = file(csKeystoreFile)
+                storePassword = providers.environmentVariable("CS_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("CS_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("CS_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (csKeystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

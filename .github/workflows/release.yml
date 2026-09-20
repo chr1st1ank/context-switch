@@ -60,6 +60,7 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
+    environment: prod
     permissions:
       contents: read
     steps:
@@ -104,19 +105,36 @@ jobs:
           echo "name=$v" >> "$GITHUB_OUTPUT"
           echo "code=$(( 10#$major * 10000 + 10#$minor * 100 + 10#${patch%%-*} ))" >> "$GITHUB_OUTPUT"
 
+      - name: Decode upload keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+
       - name: Build release APK
+        env:
+          CS_KEYSTORE_FILE: ${{ runner.temp }}/upload-keystore.jks
+          CS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CS_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+          CS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: task android:release VERSION_NAME=${{ steps.version.outputs.name }} VERSION_CODE=${{ steps.version.outputs.code }}
 
       - name: Rename APK
         run: |
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk \
-             "contextswitch-${{ steps.version.outputs.name }}-unsigned.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "contextswitch-${{ steps.version.outputs.name }}.apk"
+
+      - name: Verify APK signature
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs \
+            "contextswitch-${{ steps.version.outputs.name }}.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: contextswitch-*-unsigned.apk
+          path: contextswitch-*.apk
 
   publish:
     runs-on: ubuntu-latest
