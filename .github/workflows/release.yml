@@ -36,6 +36,14 @@ jobs:
         with:
           shared-key: cargo-core
 
+      # Versions live in git tags, not committed manifests — stamp the
+      # workspace checkout so the built wheel carries the release version.
+      - name: Stamp version from tag
+        run: |
+          v="${{ github.event.release.tag_name }}"
+          uv version --package cosw "${v#v}"
+          uv version --package contextswitch-core "${v#v}"
+
       - name: Build distributions
         run: task cli:build
 

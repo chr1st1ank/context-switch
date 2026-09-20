@@ -68,6 +68,42 @@ tasks:
       - git-cliff --unreleased
 
   draft-release:
-    desc: Draft a new release
-    cmds:
-      - echo "Release workflow not yet configured"
+    desc: Determine next version and create a draft GitHub release (humans only — pushes a tag)
+    interactive: true
+    cmd: |
+      set -e
+      if [ "$(git branch --show-current)" != "main" ]; then
+        echo "Not on main — releases are tagged from main."
+        exit 1
+      fi
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "Working tree is not clean."
+        exit 1
+      fi
+      LATEST=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "")
+      TAG=$(git-cliff --bumped-version 2>/dev/null)
+      if [ -z "$TAG" ]; then
+        echo "No release needed (no relevant commits since last tag)."
+        exit 0
+      fi
+      case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
+      if [ "$TAG" = "$LATEST" ]; then
+        echo "No release needed (no relevant commits since last tag)."
+        exit 0
+      fi
+      NOTES=$(git-cliff --unreleased --tag "$TAG" --strip header 2>/dev/null)
+      echo ""
+      echo "Next version: $TAG"
+      echo ""
+      echo "$NOTES"
+      echo ""
+      read -p "Create draft release for $TAG? [y/N] " confirm
+      if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        echo "Aborted."
+        exit 1
+      fi
+      git tag -a "$TAG" -m "$TAG"
+      git push origin tag "$TAG"
+      gh release create "$TAG" --draft --title "$TAG" --notes "$NOTES"
+      echo ""
+      echo "Draft release created for $TAG"

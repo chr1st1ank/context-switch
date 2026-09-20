@@ -38,3 +38,20 @@ Two more "integrated" approaches were tried and rejected:
 The current script avoids both problems: `maturin build` is always invoked as
 a CLI subprocess (correct tags), and merging is done with the standard
 `wheel` tool rather than a bespoke build backend.
+
+## Versioning at release time
+
+Versions are never committed: every manifest (`cli/pyproject.toml`,
+`libs/contextswitch-core/pyproject.toml`, the `Cargo.toml`s) keeps a static
+placeholder, and the git tag (`v*.*.*`) is the single source of truth.
+
+`task draft-release` computes the next version with `git-cliff
+--bumped-version`, creates the tag, and opens a draft GitHub release.
+Publishing the draft triggers `release.yml`, whose cosw job stamps the
+workspace checkout via `uv version --package` before `task cli:build` —
+the wheel filename and `cosw`'s dist-info METADATA therefore carry the
+release version, and `cosw --version` resolves it from
+`importlib.metadata`. The Android job derives `versionName`/`versionCode`
+from the same tag. The Rust crate versions are never stamped: nothing
+consumes them, and the merged wheel does not include
+contextswitch-core's dist-info.
