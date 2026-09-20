@@ -75,6 +75,7 @@ task lint         # ruff check --fix + ruff format
 task typecheck    # ty check
 task test         # pytest with coverage
 task changelog    # preview unreleased notes
+task draft-release # tag + draft GitHub release (humans only)
 ```
 
 Component-specific tasks:
@@ -88,6 +89,13 @@ task core:test    # run core library tests
 
 See `docs/packaging.md` for how `task cli:build` bundles the unpublished
 `contextswitch-core` library into the `cosw` wheel.
+
+Releases are tag-driven: versions are never committed to manifests, which
+keep a static placeholder. `release.yml` stamps the release version into
+the wheel at build time, and the Android job derives
+`versionName`/`versionCode` from the tag. `task draft-release` creates the
+tag and a draft GitHub release; publishing the draft triggers
+`release.yml`.
 
 ## Python environment
 
@@ -249,6 +257,7 @@ new features, and remove items from the list as they are implemented.
 
 ## Do not
 
+- Run `task draft-release` — it pushes tags and creates GitHub releases
 - Commit secrets, credentials, or environment-specific values
 - Modify CI security policies or compliance controls to work around failures
 - Add dependencies without checking that they're stable (prefer versions published >7 days ago)

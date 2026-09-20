@@ -42,8 +42,9 @@ commit_parsers = [
 ]
 # protect breaking changes from being skipped due to matching a skipping commit_parser
 protect_breaking_commits = false
-# filter commits by prefixes
-skip_tags = "v0.1.0-lm"
+# only v*.*.* release tags anchor the changelog (v prefix optional so the
+# first bump, computed before any tag exists, validates)
+tag_pattern = "v?[0-9]*"
 # filter commits by glob
 skip_commit_body = ".*ignore-in-changelog"
 # limit commits included in the changelog per tag
