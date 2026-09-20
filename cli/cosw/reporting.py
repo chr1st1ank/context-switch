@@ -1,4 +1,9 @@
-"""Span filtering and aggregation shared by ``log`` and ``report``."""
+"""Span filtering and aggregation shared by ``log`` and ``report``.
+
+Pure query logic with no CLI-framework imports. Errors surface as the
+exceptions below; the command layer in ``history.py`` translates them into
+click errors with the same user-facing text.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +11,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 
-import click
 from contextswitch_core import Logbook, Span
 
-from cosw.core import project_name, require_project, require_tag
+from cosw.core import project_name
 from cosw.timeparse import local_tz, parse_datetime, parse_range_end
 
 RANGE_SHORTCUTS = ("day", "week", "month", "year", "all")
+
+
+class RangeConflictError(ValueError):
+    """A --range shortcut was combined with --from/--to."""
+
+
+class UnknownNameError(Exception):
+    """A filter named a project or tag that does not exist."""
 
 
 @dataclass
@@ -33,7 +45,7 @@ def bounds(f: Filters, now: datetime) -> tuple[datetime | None, datetime | None]
     """Resolve the (from, to) range; ``None`` means unbounded on that side."""
     if f.range is not None:
         if f.from_str is not None or f.to_str is not None:
-            raise click.UsageError("range shortcuts cannot be combined with --from/--to")
+            raise RangeConflictError("range shortcuts cannot be combined with --from/--to")
         if f.range == "all":
             return None, None
         today = now.astimezone().date()
@@ -47,20 +59,21 @@ def bounds(f: Filters, now: datetime) -> tuple[datetime | None, datetime | None]
             start = today.replace(month=1, day=1)
         lo = datetime.combine(start, time.min, tzinfo=local_tz()).astimezone(UTC)
         return lo, None
-    try:
-        lo = parse_datetime(f.from_str) if f.from_str is not None else None
-        hi = parse_range_end(f.to_str) if f.to_str is not None else None
-    except ValueError as e:
-        raise click.BadParameter(str(e)) from e
+    lo = parse_datetime(f.from_str) if f.from_str is not None else None
+    hi = parse_range_end(f.to_str) if f.to_str is not None else None
     return lo, hi
 
 
 def _name_ids(logbook: Logbook, names: tuple[str, ...], kind: str) -> set[str]:
     """Resolve filter names to IDs; unknown names are errors, never created."""
+    items = logbook.projects() if kind == "project" else logbook.tags()
     ids = set()
     for name in names:
-        item = require_project(logbook, name) if kind == "project" else require_tag(logbook, name)
-        ids.add(item.id)
+        lowered = name.casefold()
+        match = next((item for item in items if item.name.casefold() == lowered), None)
+        if match is None:
+            raise UnknownNameError(f"unknown {kind}: {name}")
+        ids.add(match.id)
     return ids
 
 
