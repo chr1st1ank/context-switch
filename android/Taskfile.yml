@@ -23,6 +23,11 @@ tasks:
     cmds:
       - ./gradlew assembleDebug
 
+  release:
+    desc: Build release APK (unsigned until signing is configured)
+    cmds:
+      - ./gradlew assembleRelease -PversionName={{.VERSION_NAME | default "0.1.0"}} -PversionCode={{.VERSION_CODE | default "1"}}
+
   install:
     desc: Build and install on a connected device via adb
     cmds:
