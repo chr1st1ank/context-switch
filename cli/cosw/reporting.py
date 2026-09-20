@@ -129,11 +129,19 @@ def totals_by(
 def totals_by_day(
     logbook: Logbook, rows: list[tuple[Span, datetime, datetime]]
 ) -> dict[str, dict[str, float]]:
-    """Per-local-date totals broken down by project."""
+    """Per-local-date totals broken down by project.
+
+    A span crossing local midnight contributes to every date it covers.
+    """
     days: dict[str, dict[str, float]] = {}
     for span, lo, hi in rows:
-        day = lo.astimezone().date().isoformat()
         name = project_name(logbook, span)
-        bucket = days.setdefault(day, {})
-        bucket[name] = bucket.get(name, 0.0) + (hi - lo).total_seconds()
+        cursor = lo
+        while cursor < hi:
+            day = cursor.astimezone().date()
+            next_midnight = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
+            end = min(hi, next_midnight)
+            bucket = days.setdefault(day.isoformat(), {})
+            bucket[name] = bucket.get(name, 0.0) + (end - cursor).total_seconds()
+            cursor = end
     return days

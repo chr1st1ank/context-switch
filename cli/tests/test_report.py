@@ -151,6 +151,40 @@ def test_report_by_day(invoke) -> None:
     assert "2026-09-09" in result.output
 
 
+@pytest.mark.usefixtures("berlin_tz")
+def test_report_by_day_splits_overnight_span(invoke) -> None:
+    """A span crossing local midnight contributes to each date it covers."""
+    # 23:00–01:00 local in Berlin (CEST, UTC+2).
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-10T21:00:00Z",
+        "--to",
+        "2026-09-10T23:00:00Z",
+    )
+    result = invoke("report", "--by", "day", "--json")
+    days = {d["date"]: d["total_seconds"] for d in json.loads(result.output)["days"]}
+    assert days == {"2026-09-10": 3600, "2026-09-11": 3600}
+
+
+@pytest.mark.usefixtures("berlin_tz")
+def test_report_by_day_midnight_boundary(invoke) -> None:
+    """A span ending exactly at local midnight leaves no next-day bucket."""
+    # 23:00–00:00 local in Berlin (CEST, UTC+2).
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-11T21:00:00Z",
+        "--to",
+        "2026-09-11T22:00:00Z",
+    )
+    result = invoke("report", "--by", "day", "--json")
+    days = {d["date"]: d["total_seconds"] for d in json.loads(result.output)["days"]}
+    assert days == {"2026-09-11": 3600}
+
+
 def test_report_json(invoke) -> None:
     _seed(invoke)
     result = invoke("report", "--json")
