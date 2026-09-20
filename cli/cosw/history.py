@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, TypeVar
 
 import click
@@ -25,7 +26,15 @@ from cosw.core import (
     tag_names,
     transact,
 )
-from cosw.reporting import Filters, matching_spans, totals_by, totals_by_day
+from cosw.reporting import (
+    RANGE_SHORTCUTS,
+    Filters,
+    RangeConflictError,
+    UnknownNameError,
+    matching_spans,
+    totals_by,
+    totals_by_day,
+)
 from cosw.timeparse import fmt_duration, fmt_local, fmt_time, parse_range_end, utcnow
 
 _F = TypeVar("_F", bound=Callable[..., Any])
@@ -181,13 +190,27 @@ def remove(ctx: click.Context, ref: str, force: bool) -> None:
     click.echo(f"Removed {description}")
 
 
+def _matching(
+    logbook: Logbook, filters: Filters, now: datetime
+) -> list[tuple[Span, datetime, datetime]]:
+    """Run the shared span query, translating query errors into CLI errors."""
+    try:
+        return matching_spans(logbook, filters, now)
+    except RangeConflictError as e:
+        raise click.UsageError(str(e)) from e
+    except UnknownNameError as e:
+        raise click.ClickException(str(e)) from e
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from e
+
+
 def _filter_options(command: _F) -> _F:
     """Attach the shared log/report filter options to a command."""
     options = [
         click.option(
             "--range",
             "range_",
-            type=click.Choice(["day", "week", "month", "year", "all"]),
+            type=click.Choice(list(RANGE_SHORTCUTS)),
             help="Shortcut for --from: day, week, month, year, or all.",
         ),
         click.option("--from", "from_str", metavar="WHEN", help="Range start."),
@@ -264,7 +287,7 @@ def log(
     filters = _filters(
         range_, from_str, to_str, projects, tags, ignore_projects, ignore_tags, current
     )
-    rows = matching_spans(logbook, filters, now)
+    rows = _matching(logbook, filters, now)
     if not reverse:
         rows.reverse()
     if as_json:
@@ -339,7 +362,7 @@ def report(
     filters = _filters(
         range_, from_str, to_str, projects, tags, ignore_projects, ignore_tags, current
     )
-    rows = matching_spans(logbook, filters, now)
+    rows = _matching(logbook, filters, now)
     total = sum((hi - lo).total_seconds() for _, lo, hi in rows)
 
     if by == "day":

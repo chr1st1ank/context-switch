@@ -113,9 +113,8 @@ def read_logbook(ctx: click.Context) -> Logbook:
 def storage_info(ctx: click.Context) -> dict[str, str]:
     """Storage location as a URI for ``status --verbose``.
 
-    The URI scheme hints at the storage driver: ``file://`` for the local
-    filesystem provider, an object-storage scheme once a remote provider
-    exists.
+    The URI scheme identifies the storage driver: ``file://`` for the local
+    filesystem provider, ``s3://`` for the remote object-storage provider.
     """
     provider = get_provider(ctx)
     return {

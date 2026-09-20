@@ -1,6 +1,9 @@
 """Tests for log and report."""
 
 import json
+from pathlib import Path
+
+import pytest
 
 
 def _seed(invoke) -> None:
@@ -214,3 +217,44 @@ def test_report_tag_filter_and_semantics(invoke) -> None:
     result = invoke("report", "-T", "module", "-T", "review", "--json")
     payload = json.loads(result.output)
     assert payload["total_seconds"] == 3600
+
+
+def test_reporting_module_is_framework_free() -> None:
+    """The query module holds no CLI-framework bindings of its own."""
+    import cosw.reporting
+
+    assert "click" not in cosw.reporting.__dict__
+
+
+def test_matching_spans_raises_domain_errors(invoke, data_file: Path) -> None:
+    """Query failures surface as domain exceptions, translated at the CLI layer."""
+    from dataclasses import replace
+
+    from contextswitch_core import LocalFsProvider
+    from cosw.reporting import (
+        Filters,
+        RangeConflictError,
+        UnknownNameError,
+        matching_spans,
+    )
+    from cosw.timeparse import utcnow
+
+    invoke("add", "apollo11", "--from", "2026-09-08T08:00:00Z", "--to", "2026-09-08T09:00:00Z")
+    logbook = LocalFsProvider(str(data_file)).read().logbook
+    now = utcnow()
+    base = Filters(
+        range=None,
+        from_str=None,
+        to_str=None,
+        projects=(),
+        tags=(),
+        ignore_projects=(),
+        ignore_tags=(),
+        include_current=True,
+    )
+    with pytest.raises(UnknownNameError):
+        matching_spans(logbook, replace(base, projects=("nosuch",)), now)
+    with pytest.raises(RangeConflictError):
+        matching_spans(logbook, replace(base, range="day", from_str="2026-09-08"), now)
+    with pytest.raises(ValueError):
+        matching_spans(logbook, replace(base, from_str="bogus"), now)
