@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import dev.contextswitch.ui.parseTime
 
 /**
  * Foreground service keeping a persistent, podcast-style notification while
@@ -52,10 +53,35 @@ class TimerService : Service() {
             else -> {
                 val startedAt = intent?.getLongExtra(EXTRA_STARTED_AT_MS, 0L) ?: 0L
                 val label = intent?.getStringExtra(EXTRA_LABEL).orEmpty()
-                startForeground(NOTIFICATION_ID, buildNotification(startedAt, label))
+                if (startedAt > 0L) {
+                    startForeground(NOTIFICATION_ID, buildNotification(startedAt, label))
+                } else if (!restoreNotification()) {
+                    // Sticky restart (null intent) with no cached active timer:
+                    // kill the service rather than show a chronometer counting
+                    // from the epoch.
+                    stopSelf()
+                }
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * Rebuild the notification from the cached snapshot after a START_STICKY
+     * restart, when the original extras are gone. Returns false when the
+     * cache has no active span to display.
+     */
+    private fun restoreNotification(): Boolean {
+        val snapshot = (application as CoswApp).logbook.cachedSnapshot() ?: return false
+        val active = snapshot.activeSpanId?.let { id ->
+            snapshot.spans.firstOrNull { it.id == id }
+        } ?: return false
+        val label = active.projectId
+            ?.let { pid -> snapshot.projects.firstOrNull { it.id == pid }?.name }
+            ?: "(unassigned)"
+        val startedAt = parseTime(active.startedAt).toInstant().toEpochMilli()
+        startForeground(NOTIFICATION_ID, buildNotification(startedAt, label))
+        return true
     }
 
     private fun buildNotification(startedAtMs: Long, label: String): Notification {

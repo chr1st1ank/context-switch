@@ -29,6 +29,13 @@ class LogbookStore(private val context: Context) {
 
     val hasActiveTimer: Boolean get() = snapshot.value?.activeSpanId != null
 
+    /** The last committed snapshot, falling back to the on-disk cache. */
+    fun cachedSnapshot(): SnapshotRec? {
+        snapshot.value?.let { return it }
+        loadCache()
+        return snapshot.value
+    }
+
     fun open() {
         val settings = SettingsStore(context)
         if (!settings.isConfigured()) {
