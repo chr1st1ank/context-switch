@@ -57,12 +57,14 @@ audited, higher-level cryptography library.
    providing solid brute-force resistance while keeping the CLI responsive.
 3. **Interface Simplification**: The `Cipher` trait drops `KeyState` and the multi-key
    wrapping list:
+
    ```rust
    pub trait Cipher: Send + Sync {
        fn open(&self, envelope: &[u8], passphrase: &str) -> Result<Vec<u8>, CryptoError>;
        fn seal(&self, plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>, CryptoError>;
    }
    ```
+
    `GenericProvider` and `CachedHead` no longer carry key state across calls;
    sealing is a pure function of `(plaintext, passphrase)`.
 4. **Disaster Recovery**: Any standard `age` tool (`age --decrypt`, `rage`) can

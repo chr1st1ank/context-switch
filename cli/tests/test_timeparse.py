@@ -26,6 +26,19 @@ def test_parse_date_only() -> None:
     assert parsed.tzinfo == UTC
 
 
+@pytest.mark.usefixtures("berlin_tz")
+def test_parse_naive_uses_dst_rules() -> None:
+    """Naive values resolve against the offset in effect on their own date."""
+    assert parse_datetime("2026-01-15T09:00") == datetime(2026, 1, 15, 8, 0, tzinfo=UTC)
+    assert parse_datetime("2026-07-15T09:00") == datetime(2026, 7, 15, 7, 0, tzinfo=UTC)
+
+
+@pytest.mark.usefixtures("berlin_tz")
+def test_range_end_date_only_uses_dst_rules() -> None:
+    parsed = parse_range_end("2026-01-15")
+    assert parsed == datetime(2026, 1, 15, 22, 59, 59, 999999, tzinfo=UTC)
+
+
 def test_parse_hhmm_today() -> None:
     parsed = parse_datetime("08:15")
     local = parsed.astimezone()

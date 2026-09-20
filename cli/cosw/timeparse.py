@@ -8,14 +8,10 @@ core logbook stores.
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime, time, tzinfo
+from datetime import UTC, date, datetime, time
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-
-def local_tz() -> tzinfo | None:
-    return datetime.now().astimezone().tzinfo
 
 
 def utcnow() -> datetime:
@@ -31,13 +27,13 @@ def parse_datetime(value: str) -> datetime:
             t = time(int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
         except ValueError as e:
             raise ValueError(f"invalid time {value!r}") from e
-        return datetime.combine(date.today(), t, tzinfo=local_tz()).astimezone(UTC)
+        # A naive datetime's astimezone() interprets it as local time using
+        # the tz rules in effect on that date, not just today's offset.
+        return datetime.combine(date.today(), t).astimezone(UTC)
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError as e:
         raise ValueError(f"invalid datetime {value!r}; use ISO 8601 or HH:MM") from e
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=local_tz())
     return parsed.astimezone(UTC)
 
 
@@ -46,7 +42,7 @@ def parse_range_end(value: str) -> datetime:
     text = value.strip()
     if _DATE_RE.match(text):
         end = date.fromisoformat(text)
-        return datetime.combine(end, time.max, tzinfo=local_tz()).astimezone(UTC)
+        return datetime.combine(end, time.max).astimezone(UTC)
     return parse_datetime(value)
 
 

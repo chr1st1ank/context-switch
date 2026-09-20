@@ -14,7 +14,7 @@ from datetime import UTC, datetime, time, timedelta
 from contextswitch_core import Logbook, Span
 
 from cosw.core import project_name
-from cosw.timeparse import local_tz, parse_datetime, parse_range_end
+from cosw.timeparse import parse_datetime, parse_range_end
 
 RANGE_SHORTCUTS = ("day", "week", "month", "year", "all")
 
@@ -57,7 +57,7 @@ def bounds(f: Filters, now: datetime) -> tuple[datetime | None, datetime | None]
             start = today.replace(day=1)
         else:
             start = today.replace(month=1, day=1)
-        lo = datetime.combine(start, time.min, tzinfo=local_tz()).astimezone(UTC)
+        lo = datetime.combine(start, time.min).astimezone(UTC)
         return lo, None
     lo = parse_datetime(f.from_str) if f.from_str is not None else None
     hi = parse_range_end(f.to_str) if f.to_str is not None else None

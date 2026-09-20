@@ -1,6 +1,8 @@
 """Shared test fixtures."""
 
-from collections.abc import Callable
+import os
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,20 @@ def _isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep a real user config file from leaking into tests."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
     monkeypatch.delenv("COSW_CONFIG", raising=False)
+
+
+@pytest.fixture
+def berlin_tz() -> Iterator[None]:
+    """Pin the process timezone to a DST-observing zone (CET/CEST)."""
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Berlin"
+    time.tzset()
+    yield
+    if old is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old
+    time.tzset()
 
 
 @pytest.fixture
