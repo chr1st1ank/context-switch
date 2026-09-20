@@ -275,7 +275,7 @@ impl S3Provider {
             profile,
         ));
 
-        let cipher = Arc::new(EnvelopeCipher);
+        let cipher = Arc::new(EnvelopeCipher::new());
         let inner = GenericProvider::new(blob_store, cipher, Some(passphrase));
 
         let file_key = if prefix.is_empty() {

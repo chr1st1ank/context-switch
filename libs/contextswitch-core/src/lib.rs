@@ -21,8 +21,8 @@ use pyo3::prelude::*;
 #[cfg(feature = "python")]
 #[pyfunction]
 fn decrypt_envelope(envelope: Vec<u8>, passphrase: String) -> PyResult<String> {
-    let cipher = crate::crypto::EnvelopeCipher;
-    let (plaintext, _) = cipher
+    let cipher = crate::crypto::EnvelopeCipher::new();
+    let plaintext = cipher
         .open(&envelope, &passphrase)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
@@ -39,9 +39,9 @@ fn decrypt_envelope(envelope: Vec<u8>, passphrase: String) -> PyResult<String> {
 #[cfg(feature = "python")]
 #[pyfunction]
 fn encrypt_envelope(plaintext: String, passphrase: String) -> PyResult<Vec<u8>> {
-    let cipher = crate::crypto::EnvelopeCipher;
+    let cipher = crate::crypto::EnvelopeCipher::new();
     cipher
-        .seal(plaintext.as_bytes(), &passphrase, None)
+        .seal(plaintext.as_bytes(), &passphrase)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
