@@ -9,8 +9,9 @@ This directory contains decisions that constrain the architecture and should be 
 - [ADR-0005: cosw CLI command surface](./0005-cosw-cli-command-surface.md)
 - [ADR-0006: cosw client config file](./0006-cosw-config-file.md)
 - [ADR-0007: S3-compatible remote storage provider](./0007-s3-remote-storage-provider.md)
-- [ADR-0008: Client-side envelope encryption and key management](./0008-envelope-encryption-and-key-management.md)
+- [ADR-0008: Client-side envelope encryption and key management (superseded by ADR-0011)](./0008-envelope-encryption-and-key-management.md)
 - [ADR-0009: Android client — Kotlin shell over the Rust core via UniFFI](./0009-android-client-architecture.md)
 - [ADR-0010: Commit against a cached head; let the conditional write enforce atomicity](./0010-cached-head-single-conditional-write.md)
+- [ADR-0011: Standardize on age for client-side envelope encryption](./0011-standardize-on-age-for-envelope-encryption.md)
 
 These records are proposed until implementation validates the provider protocol and native schema.

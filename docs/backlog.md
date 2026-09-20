@@ -67,13 +67,10 @@ behaviors that did not land in the first version:
 - **Explicit precondition-honoring assertion** (story 57): add a
   conformance check that fails loudly if a configured backend silently
   ignores `IfAbsent`/`IfMatch` instead of producing a vacuous pass.
-- **Passphrase rotation** (stories 46-47, the PRD's "Open decision"): no
-  logbook-layer operation exists yet to rotate the passphrase through the
-  normal conditional-commit path; `EnvelopeCipher::seal`'s `KeyState`
-  threading already supports adding a wrapped key (see
-  `key_rotation_and_preservation` in
-  `libs/contextswitch-core/tests/encrypted_provider.rs`), but nothing calls
-  it from `cosw`.
+- **Passphrase rotation**: no logbook-layer operation exists yet to rotate
+  the passphrase through the normal conditional-commit path (decrypt with the
+  existing passphrase, re-seal under the new passphrase, and conditional-PUT
+  with `If-Match`).
 - **OS secret-store support for passphrase sourcing** (real fix for story
   8): read the passphrase from the platform secret store (Keychain /
   Secret Service / Credential Manager) as a first-class option alongside

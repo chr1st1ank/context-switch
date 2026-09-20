@@ -1,5 +1,6 @@
 ---
-status: "accepted"
+status: "superseded"
+superseded-by: "ADR-0011"
 date: 2026-09-13
 decision-makers: "Project owner"
 consulted: ""
@@ -7,6 +8,8 @@ informed: ""
 ---
 
 # Client-side envelope encryption and key management
+
+> **Note**: This decision is superseded by [ADR-0011: Standardize on age for client-side envelope encryption](./0011-standardize-on-age-for-envelope-encryption.md).
 
 ## Context and Problem Statement
 

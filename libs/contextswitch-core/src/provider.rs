@@ -1,7 +1,7 @@
 //! Composable generic StorageProvider implementation.
 
 use crate::blob::{BlobStore, Precondition};
-use crate::crypto::{Cipher, CryptoError, KeyState};
+use crate::crypto::{Cipher, CryptoError};
 use crate::domain::Logbook;
 use crate::storage::{StorageError, StorageProvider, StorageSnapshot};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -17,14 +17,13 @@ impl From<CryptoError> for StorageError {
         match e {
             CryptoError::DecryptionFailed => StorageError::DecryptionFailed,
             CryptoError::InvalidHeader(msg) => StorageError::Corrupt(msg),
-            CryptoError::InvalidParams(msg) => StorageError::Corrupt(msg),
             CryptoError::Internal(msg) => StorageError::Corrupt(msg),
         }
     }
 }
 
-/// The blob head as last observed by this instance: logbook revision,
-/// blob ETag, and the envelope [`KeyState`] needed to re-seal.
+/// The blob head as last observed by this instance: logbook revision and
+/// blob ETag.
 ///
 /// Every mutation follows read → mutate → commit, so the commit almost
 /// always targets the head this instance just read. Caching it lets
@@ -36,9 +35,6 @@ struct CachedHead {
     version: String,
     /// ETag to precondition the write on; `None` means the blob is absent.
     etag: Option<String>,
-    /// Key state to reuse in `seal`; `None` when the blob is absent or
-    /// was written by the identity cipher.
-    key_state: Option<KeyState>,
 }
 
 fn timing_enabled() -> bool {
@@ -86,18 +82,13 @@ impl GenericProvider {
             Some(h) if h.version == expected_version => Some(CachedHead {
                 version: h.version.clone(),
                 etag: h.etag.clone(),
-                key_state: h.key_state.clone(),
             }),
             _ => None,
         }
     }
 
-    fn set_head(&self, version: String, etag: Option<String>, key_state: Option<KeyState>) {
-        *self.head.lock().unwrap() = Some(CachedHead {
-            version,
-            etag,
-            key_state,
-        });
+    fn set_head(&self, version: String, etag: Option<String>) {
+        *self.head.lock().unwrap() = Some(CachedHead { version, etag });
     }
 
     fn invalidate_head(&self) {
@@ -108,7 +99,7 @@ impl GenericProvider {
 impl StorageProvider for GenericProvider {
     fn read(&self) -> Result<StorageSnapshot, StorageError> {
         let got = timed("blob.get", || self.blob_store.get())?;
-        let (plaintext, key_state) = match &got {
+        let plaintext = match &got {
             Some((bytes, _etag)) => {
                 let passphrase = self.passphrase.as_deref().unwrap_or("");
                 timed("cipher.open", || {
@@ -118,15 +109,9 @@ impl StorageProvider for GenericProvider {
                 })?
             }
             // If it's absent, bootstrap as empty v1 logbook.
-            None => (
-                serde_json::to_string_pretty(&Logbook::new())
-                    .map_err(|e| StorageError::Corrupt(e.to_string()))?
-                    .into_bytes(),
-                KeyState {
-                    active_key_id: "identity".to_string(),
-                    keys: vec![],
-                },
-            ),
+            None => serde_json::to_string_pretty(&Logbook::new())
+                .map_err(|e| StorageError::Corrupt(e.to_string()))?
+                .into_bytes(),
         };
 
         let json_str = std::str::from_utf8(&plaintext).map_err(|_| {
@@ -141,10 +126,7 @@ impl StorageProvider for GenericProvider {
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
         let version = logbook.revision.to_string();
-        match &got {
-            Some((_, etag)) => self.set_head(version.clone(), Some(etag.clone()), Some(key_state)),
-            None => self.set_head(version.clone(), None, None),
-        }
+        self.set_head(version.clone(), got.as_ref().map(|(_, etag)| etag.clone()));
 
         // The opaque version string remains the logbook revision, not the ETag.
         Ok(StorageSnapshot { version, logbook })
@@ -160,17 +142,13 @@ impl StorageProvider for GenericProvider {
         // would only re-fetch what we already have is skipped. The blob's
         // own conditional write still enforces atomicity; a stale head
         // surfaces as `StorageError::Conflict`, never a lost update.
-        let (base_revision, current_etag, key_state) = match self.head_for(expected_version) {
-            Some(head) => (
-                expected_version.parse::<u64>().unwrap_or(0),
-                head.etag,
-                head.key_state,
-            ),
+        let (base_revision, current_etag) = match self.head_for(expected_version) {
+            Some(head) => (expected_version.parse::<u64>().unwrap_or(0), head.etag),
             None => {
                 let got = timed("blob.get", || self.blob_store.get())?;
                 match got {
                     Some((bytes, etag)) => {
-                        let (plaintext, state) = timed("cipher.open", || {
+                        let plaintext = timed("cipher.open", || {
                             self.cipher
                                 .open(&bytes, passphrase)
                                 .map_err(StorageError::from)
@@ -182,9 +160,9 @@ impl StorageProvider for GenericProvider {
                         })?;
                         let current: Logbook = serde_json::from_str(json_str)
                             .map_err(|e| StorageError::Corrupt(e.to_string()))?;
-                        (current.revision, Some(etag), Some(state))
+                        (current.revision, Some(etag))
                     }
-                    None => (0, None, None),
+                    None => (0, None),
                 }
             }
         };
@@ -205,7 +183,7 @@ impl StorageProvider for GenericProvider {
 
         let sealed = timed("cipher.seal", || {
             self.cipher
-                .seal(json.as_bytes(), passphrase, key_state.as_ref())
+                .seal(json.as_bytes(), passphrase)
                 .map_err(StorageError::from)
         })?;
 
@@ -216,7 +194,7 @@ impl StorageProvider for GenericProvider {
 
         match timed("blob.put", || self.blob_store.put(&sealed, cond)) {
             Ok(new_etag) => {
-                self.set_head(logbook.revision.to_string(), Some(new_etag), key_state);
+                self.set_head(logbook.revision.to_string(), Some(new_etag));
                 Ok(logbook.revision.to_string())
             }
             Err(e) => {

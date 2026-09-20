@@ -233,7 +233,7 @@ impl CoswStore {
                 ));
                 let provider = GenericProvider::new(
                     blob_store,
-                    Arc::new(EnvelopeCipher),
+                    Arc::new(EnvelopeCipher::new()),
                     Some(cfg.passphrase),
                 );
                 let key = if cfg.prefix.is_empty() {
