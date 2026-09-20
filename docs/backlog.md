@@ -18,7 +18,9 @@ timer notification. Remaining:
 - Offline queueing of timer actions (architecture §7) — reads already work
   from the cached snapshot
 - Background sync / conflict UX beyond surfacing `MobileError.Conflict`
-- Play Store signing/distribution (currently sideloaded debug APK)
+- Release APK signing (release.yml publishes an unsigned `*-unsigned.apk`
+  that cannot be installed until a keystore + `signingConfigs` are set up;
+  Play Store distribution remains open too)
 - Graceful handling of a timer that was started/stopped remotely (currently error message)
 
 ### Dashboard web app
