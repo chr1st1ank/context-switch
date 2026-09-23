@@ -277,6 +277,62 @@ impl S3BlobStore {
         }
     }
 
+    /// Shared bodiless-request path for GET and HEAD: identical SigV4
+    /// inputs (empty-body hash, same headers), only the verb differs.
+    fn bodiless_response(&self, method: &str) -> Result<minreq::Response, StorageError> {
+        let creds = self.credentials()?;
+        let (url, path, host) = self.resolve_url_and_host();
+
+        let now = Utc::now();
+        let date_str = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let date_only = now.format("%Y%m%d").to_string();
+
+        let mut headers = vec![
+            ("Host", host.as_str()),
+            ("X-Amz-Date", date_str.as_str()),
+            (
+                "X-Amz-Content-Sha256",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ), // SHA256 of empty body
+        ];
+
+        if let Some(token) = &creds.session_token {
+            headers.push(("X-Amz-Security-Token", token.as_str()));
+        }
+
+        let auth = sign_request(
+            &RequestToSign {
+                method,
+                url_path: &path,
+                query_str: "",
+                headers: &headers,
+                body_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            },
+            &creds,
+            &SignatureScope {
+                region: &self.region,
+                date_str: &date_str,
+                date_only: &date_only,
+            },
+        );
+
+        let mut req = match method {
+            "HEAD" => minreq::head(&url),
+            _ => minreq::get(&url),
+        }
+        .with_timeout(10); // 10 seconds timeout
+
+        for (name, val) in headers {
+            req = req.with_header(name, val);
+        }
+        req = req.with_header("Authorization", auth);
+
+        match req.send() {
+            Ok(r) => Ok(r),
+            Err(e) => Err(StorageError::Unavailable(format!("S3 request failed: {e}"))),
+        }
+    }
+
     /// Like [`S3BlobStore::new`] but with explicit credentials instead of a
     /// profile looked up from the environment or `~/.aws/credentials`.
     pub fn with_credentials(
@@ -326,54 +382,28 @@ impl S3BlobStore {
 }
 
 impl BlobStore for S3BlobStore {
+    fn stat(&self) -> Result<Option<String>, StorageError> {
+        let resp = self.bodiless_response("HEAD")?;
+        match resp.status_code {
+            200 => {
+                let etag = resp
+                    .header("etag")
+                    .map(|e| e.trim().to_string())
+                    .ok_or_else(|| {
+                        StorageError::Corrupt("S3 response missing ETag header".to_string())
+                    })?;
+                Ok(Some(etag))
+            }
+            404 => Ok(None),
+            403 => Err(unauthorized_error(&resp)),
+            code => Err(StorageError::Unavailable(format!(
+                "S3 server returned unexpected code {code}"
+            ))),
+        }
+    }
+
     fn get(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
-        let creds = self.credentials()?;
-        let (url, path, host) = self.resolve_url_and_host();
-
-        let now = Utc::now();
-        let date_str = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date_only = now.format("%Y%m%d").to_string();
-
-        let mut headers = vec![
-            ("Host", host.as_str()),
-            ("X-Amz-Date", date_str.as_str()),
-            (
-                "X-Amz-Content-Sha256",
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            ), // SHA256 of empty body
-        ];
-
-        if let Some(token) = &creds.session_token {
-            headers.push(("X-Amz-Security-Token", token.as_str()));
-        }
-
-        let auth = sign_request(
-            &RequestToSign {
-                method: "GET",
-                url_path: &path,
-                query_str: "",
-                headers: &headers,
-                body_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            },
-            &creds,
-            &SignatureScope {
-                region: &self.region,
-                date_str: &date_str,
-                date_only: &date_only,
-            },
-        );
-
-        let mut req = minreq::get(&url).with_timeout(10); // 10 seconds timeout
-
-        for (name, val) in headers {
-            req = req.with_header(name, val);
-        }
-        req = req.with_header("Authorization", auth);
-
-        let resp = match req.send() {
-            Ok(r) => r,
-            Err(e) => return Err(StorageError::Unavailable(format!("S3 request failed: {e}"))),
-        };
+        let resp = self.bodiless_response("GET")?;
 
         match resp.status_code {
             200 => {

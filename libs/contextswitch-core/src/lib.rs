@@ -46,6 +46,7 @@ fn encrypt_envelope(plaintext: String, passphrase: String) -> PyResult<Vec<u8>> 
 }
 
 pub mod blob;
+pub mod cache;
 pub mod conformance;
 pub mod crypto;
 pub mod domain;

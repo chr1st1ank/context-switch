@@ -13,5 +13,6 @@ This directory contains decisions that constrain the architecture and should be 
 - [ADR-0009: Android client — Kotlin shell over the Rust core via UniFFI](./0009-android-client-architecture.md)
 - [ADR-0010: Commit against a cached head; let the conditional write enforce atomicity](./0010-cached-head-single-conditional-write.md)
 - [ADR-0011: Standardize on age for client-side envelope encryption](./0011-standardize-on-age-for-envelope-encryption.md)
+- [ADR-0012: Pluggable caching provider with a buffered write queue](./0012-pluggable-caching-provider.md)
 
 These records are proposed until implementation validates the provider protocol and native schema.
