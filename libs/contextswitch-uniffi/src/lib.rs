@@ -10,9 +10,13 @@
 //! [`S3Config`] — env vars and `~/.aws` do not exist on Android.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use contextswitch_core::blob::BlobStore;
+use contextswitch_core::cache::{
+    CommitMode, MemoryCachingProvider, SyncStatus, DEFAULT_REFRESH_INTERVAL,
+};
 use contextswitch_core::crypto::EnvelopeCipher;
 use contextswitch_core::domain::{DomainError, Logbook};
 use contextswitch_core::provider::GenericProvider;
@@ -130,10 +134,36 @@ impl From<DomainError> for MobileError {
     }
 }
 
+/// Aggregate state of the write buffer and background revalidation.
+/// Always `Clean` when the store was opened without a cache.
+#[derive(uniffi::Enum)]
+pub enum StoreSyncStatus {
+    /// No pending writes and no refresh failure.
+    Clean,
+    /// This many buffered commits are still queued or being written.
+    Pending(u32),
+    /// The last background refresh failed; the cached snapshot is still
+    /// served. Carries the error's display text.
+    Degraded(String),
+}
+
+/// A buffered commit the storage backend rejected; the mutation is
+/// preserved verbatim so the app can export or retry it.
+#[derive(uniffi::Record)]
+pub struct FailedWriteRec {
+    /// The logbook as it was submitted, serialized as JSON.
+    pub logbook_json: String,
+    /// Why the write was rejected (error display text).
+    pub error: String,
+}
+
 /// A storage provider plus the read-mutate-commit loop the app drives.
 #[derive(uniffi::Object)]
 pub struct CoswStore {
-    provider: Box<dyn StorageProvider>,
+    provider: Arc<dyn StorageProvider>,
+    /// Set when opened via [`CoswStore::open_cached`]; kept to expose the
+    /// write-buffer status surface.
+    cache: Option<Arc<MemoryCachingProvider>>,
     location_url: String,
 }
 
@@ -202,52 +232,125 @@ fn snapshot_rec(
     })
 }
 
+fn open_provider(config: StorageConfig) -> Result<(Arc<dyn StorageProvider>, String), MobileError> {
+    match config {
+        StorageConfig::Local { path } => {
+            let provider = LocalFsProvider::new(&path)?;
+            let location_url = format!("file://{path}");
+            Ok((Arc::new(provider), location_url))
+        }
+        StorageConfig::S3(cfg) => {
+            let creds = AwsCredentials {
+                access_key_id: cfg.access_key_id,
+                secret_access_key: cfg.secret_access_key,
+                session_token: cfg.session_token,
+            };
+            let blob_store: Arc<dyn BlobStore> = Arc::new(S3BlobStore::with_credentials(
+                cfg.bucket.clone(),
+                cfg.region,
+                cfg.prefix.clone(),
+                cfg.endpoint,
+                cfg.use_path_style,
+                creds,
+            ));
+            let provider = GenericProvider::new(
+                blob_store,
+                Arc::new(EnvelopeCipher::new()),
+                Some(cfg.passphrase),
+            );
+            let key = if cfg.prefix.is_empty() {
+                "logbook.json".to_string()
+            } else if cfg.prefix.ends_with('/') {
+                format!("{}logbook.json", cfg.prefix)
+            } else {
+                format!("{}/logbook.json", cfg.prefix)
+            };
+            Ok((Arc::new(provider), format!("s3://{}/{}", cfg.bucket, key)))
+        }
+    }
+}
+
 #[uniffi::export]
 impl CoswStore {
     /// Open a store for the given backend. Local paths are created on first
     /// commit; S3 performs no network I/O until the first read/write.
     #[uniffi::constructor]
     pub fn open(config: StorageConfig) -> Result<Arc<Self>, MobileError> {
-        match config {
-            StorageConfig::Local { path } => {
-                let provider = LocalFsProvider::new(&path)?;
-                let location_url = format!("file://{path}");
-                Ok(Arc::new(Self {
-                    provider: Box::new(provider),
-                    location_url,
-                }))
-            }
-            StorageConfig::S3(cfg) => {
-                let creds = AwsCredentials {
-                    access_key_id: cfg.access_key_id,
-                    secret_access_key: cfg.secret_access_key,
-                    session_token: cfg.session_token,
-                };
-                let blob_store: Arc<dyn BlobStore> = Arc::new(S3BlobStore::with_credentials(
-                    cfg.bucket.clone(),
-                    cfg.region,
-                    cfg.prefix.clone(),
-                    cfg.endpoint,
-                    cfg.use_path_style,
-                    creds,
-                ));
-                let provider = GenericProvider::new(
-                    blob_store,
-                    Arc::new(EnvelopeCipher::new()),
-                    Some(cfg.passphrase),
-                );
-                let key = if cfg.prefix.is_empty() {
-                    "logbook.json".to_string()
-                } else if cfg.prefix.ends_with('/') {
-                    format!("{}logbook.json", cfg.prefix)
-                } else {
-                    format!("{}/logbook.json", cfg.prefix)
-                };
-                Ok(Arc::new(Self {
-                    provider: Box::new(provider),
-                    location_url: format!("s3://{}/{}", cfg.bucket, key),
-                }))
-            }
+        let (provider, location_url) = open_provider(config)?;
+        Ok(Arc::new(Self {
+            provider,
+            cache: None,
+            location_url,
+        }))
+    }
+
+    /// Open a store behind an in-memory caching provider: `read()` and
+    /// commits never block on storage — commits are optimistic and a
+    /// background worker writes them through in order while revalidating
+    /// the snapshot every `refresh_interval_secs` seconds (0 = default).
+    /// Watch [`CoswStore::sync_status`]/[`CoswStore::take_failed_write`]
+    /// and call [`CoswStore::flush`] on app pause/exit.
+    #[uniffi::constructor]
+    pub fn open_cached(
+        config: StorageConfig,
+        refresh_interval_secs: u64,
+    ) -> Result<Arc<Self>, MobileError> {
+        let (inner, location_url) = open_provider(config)?;
+        let interval = if refresh_interval_secs == 0 {
+            DEFAULT_REFRESH_INTERVAL
+        } else {
+            Duration::from_secs(refresh_interval_secs)
+        };
+        let cache = Arc::new(MemoryCachingProvider::new(
+            inner,
+            interval,
+            CommitMode::Buffered,
+        ));
+        Ok(Arc::new(Self {
+            provider: cache.clone(),
+            cache: Some(cache),
+            location_url,
+        }))
+    }
+
+    /// Buffered commits queued or in flight; always 0 without a cache.
+    pub fn pending_writes(&self) -> u32 {
+        self.cache
+            .as_ref()
+            .map(|c| c.pending_writes() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Buffer/revalidation state for status displays.
+    pub fn sync_status(&self) -> StoreSyncStatus {
+        match self.cache.as_ref().map(|c| c.sync_status()) {
+            Some(SyncStatus::Pending(n)) => StoreSyncStatus::Pending(n as u32),
+            Some(SyncStatus::Degraded(e)) => StoreSyncStatus::Degraded(e),
+            _ => StoreSyncStatus::Clean,
+        }
+    }
+
+    /// The oldest buffered write the backend rejected, if any. Consumes
+    /// it — call repeatedly to drain the failed-writes list.
+    pub fn take_failed_write(&self) -> Result<Option<FailedWriteRec>, MobileError> {
+        let Some(failed) = self.cache.as_ref().and_then(|c| c.take_failed_write()) else {
+            return Ok(None);
+        };
+        let logbook_json = serde_json::to_string(&failed.logbook)
+            .map_err(|e| MobileError::Corrupt(e.to_string()))?;
+        Ok(Some(FailedWriteRec {
+            logbook_json,
+            error: failed.error.to_string(),
+        }))
+    }
+
+    /// Wait until all commits queued so far have been written (or
+    /// rejected); returns the earliest write failure. Call on app
+    /// pause/exit. No-op without a cache.
+    pub fn flush(&self) -> Result<(), MobileError> {
+        match &self.cache {
+            Some(cache) => cache.flush().map_err(MobileError::from),
+            None => Ok(()),
         }
     }
 

@@ -97,6 +97,10 @@ impl GenericProvider {
 }
 
 impl StorageProvider for GenericProvider {
+    fn fingerprint(&self) -> Result<String, StorageError> {
+        timed("blob.stat", || self.blob_store.stat()).map(|t| t.unwrap_or_default())
+    }
+
     fn read(&self) -> Result<StorageSnapshot, StorageError> {
         let got = timed("blob.get", || self.blob_store.get())?;
         let plaintext = match &got {

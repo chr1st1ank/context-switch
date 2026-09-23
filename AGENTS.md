@@ -36,6 +36,7 @@ context-switch/
 │       │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
 │       │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
 │       │   ├── s3.rs             # S3BlobStore + SigV4 signing
+│       │   ├── cache.rs          # MemoryCachingProvider (read cache + write buffer)
 │       │   └── conformance.rs    # Provider conformance test suite
 │       ├── python/               # Python type stubs
 │       ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
