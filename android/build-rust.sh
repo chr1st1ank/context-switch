@@ -33,12 +33,12 @@ if [ "$PROFILE" = release ]; then
 fi
 
 cargo ndk "${TARGET_ARGS[@]}" -o "$APP_MAIN/jniLibs" \
-    --manifest-path "$UNIFFI_CRATE/Cargo.toml" build "${PROFILE_ARGS[@]}"
+    --manifest-path "$UNIFFI_CRATE/Cargo.toml" build --locked "${PROFILE_ARGS[@]}"
 
 # cargo-ndk copies every cdylib dependency; only the UniFFI facade is loaded.
 find "$APP_MAIN/jniLibs" -name "libcontextswitch_core.so" -delete
 
-cargo run --quiet --manifest-path "$UNIFFI_CRATE/Cargo.toml" --bin uniffi-bindgen -- \
+cargo run --quiet --locked --manifest-path "$UNIFFI_CRATE/Cargo.toml" --bin uniffi-bindgen -- \
     generate \
     --library "$APP_MAIN/jniLibs/$FIRST_ABI/libcontextswitch_uniffi.so" \
     --language kotlin \

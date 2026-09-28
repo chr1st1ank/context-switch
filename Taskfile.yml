@@ -17,8 +17,13 @@ tasks:
     cmds:
       - uv run ruff check --fix .
       - uv run ruff format .
+      - task: lint-rust
+
+  lint-rust:
+    desc: Check formatting and lint the Cargo workspace
+    cmds:
       - cargo fmt --all -- --check
-      - cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   prek:
     desc: Run the git hooks against all files (what CI's lint job runs)
@@ -40,7 +45,12 @@ tasks:
     desc: Run all test suites
     cmds:
       - task: test-python
-      - cargo test --workspace --all-features
+      - task: test-rust
+
+  test-rust:
+    desc: Run the Cargo workspace tests
+    cmds:
+      - cargo test --workspace --all-features --locked
 
   check:
     desc: Everything that CI checks
