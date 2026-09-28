@@ -1,3 +1,7 @@
+# local scratch space
+local/
+.local/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -33,12 +37,16 @@ ENV/
 *~
 .DS_Store
 
-# Testing
+# Testing and tool caches
 .pytest_cache/
+.ruff_cache/
 .coverage
 coverage.xml
 htmlcov/
 .tox/
+
+# Docs
+site/
 
 # Build artifacts
 *.o
@@ -48,7 +56,9 @@ htmlcov/
 target/
 
 # Workspace-specific
-local/
 data/
+
+# Environments and secrets
 .env
-.env.local
+.env.*
+!.env.example
