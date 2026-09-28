@@ -30,33 +30,45 @@ context-switch/
 │   └── Taskfile.yml
 ├── libs/
 │   ├── contextswitch-core/       # Shared domain model and storage interface (Rust)
-│       ├── src/
-│       │   ├── lib.rs            # PyO3 module entry point (`python` feature)
-│       │   ├── domain.rs         # Span, Project, Tag, Logbook types
-│       │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
-│       │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
-│       │   ├── s3.rs             # S3BlobStore + SigV4 signing
-│       │   └── conformance.rs    # Provider conformance test suite
-│       ├── python/               # Python type stubs
-│       ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
-│       ├── pyproject.toml        # Python build config (maturin)
-│       └── Taskfile.yml
+│   │   ├── src/
+│   │   │   ├── lib.rs            # PyO3 module entry point (`python` feature)
+│   │   │   ├── domain.rs         # Span, Project, Tag, Logbook types
+│   │   │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
+│   │   │   ├── provider.rs       # Generic StorageProvider over a BlobStore + Cipher
+│   │   │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
+│   │   │   ├── s3.rs             # S3BlobStore + SigV4 signing
+│   │   │   ├── crypto.rs         # Client-side envelope encryption (age)
+│   │   │   └── conformance.rs    # Provider conformance test suite
+│   │   ├── python/               # Python type stubs
+│   │   ├── tests/                # Rust integration tests + Python binding tests
+│   │   ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
+│   │   ├── pyproject.toml        # Python build config (maturin)
+│   │   └── Taskfile.yml
 │   └── contextswitch-uniffi/     # UniFFI bindings for the Android client (ADR-0009)
 ├── docs/
 │   ├── architecture.md           # System design
-│   ├── design.md                 # Implementation details (TBD)
-│   ├── glossary.md               # Domain language
+│   ├── backlog.md                # Outstanding work items
+│   ├── envelope-format.md        # Encrypted logbook envelope format
 │   ├── packaging.md              # How the cosw wheel bundles contextswitch-core
+│   ├── diagrams/                 # Excalidraw sources + exports
 │   └── adr/                      # Architecture Decision Records
 ├── scripts/
-│   └── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
-├── CONTEXT.md                    # Domain language reference
+│   ├── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
+│   └── simulate.py               # Generates realistic sample data via `cosw add`
+├── .github/
+│   ├── dependabot.yml            # uv, cargo, gradle, actions; 7-day cooldown
+│   └── workflows/                # ci, release, codeql-analysis, pr-title
+├── CONTEXT.md                    # Domain glossary (domain-modeling format)
 ├── AGENTS.md                     # This file
 ├── README.md                     # Project overview
+├── SECURITY.md                   # Vulnerability reporting
 ├── Taskfile.yml                  # Root task runner
 ├── pyproject.toml                # uv workspace root
+├── Cargo.toml                    # Cargo workspace root (single Cargo.lock)
+├── cliff.toml                    # git-cliff release notes config
 ├── mise.toml                     # Tool versions
-└── .pre-commit-config.yaml       # Pre-commit hooks
+├── rust-toolchain.toml           # Rust toolchain pin
+└── .pre-commit-config.yaml       # Git hooks, run by prek
 ```
 
 ## Dependency direction
@@ -70,13 +82,29 @@ context-switch/
 All operations run through `task`:
 
 ```bash
-task check        # lint + typecheck + test (the pre-push gate)
-task lint         # ruff check --fix + ruff format
-task typecheck    # ty check
-task test         # pytest with coverage
-task changelog    # preview unreleased notes
-task draft-release # tag + draft GitHub release (humans only)
+task check               # lint + typecheck + test (the pre-push gate)
+task lint                # ruff check --fix + ruff format + lint-rust
+task lint-rust           # cargo fmt --check + clippy over the Cargo workspace
+task typecheck           # ty check
+task test                # test-python + test-rust
+task test-python         # build core bindings (maturin develop) + pytest with coverage
+task test-rust           # cargo test over the Cargo workspace
+task prek                # run all git hooks against all files (CI's lint job)
+task update-dependencies # upgrade uv.lock, Cargo.lock and hook revisions, then check
+task changelog           # preview unreleased notes
+task draft-release       # tag + draft GitHub release (humans only)
 ```
+
+Tool setup: `mise install` provides python, uv, task, git-cliff, prek and
+Rust; then `prek install` once per clone. `uv` must be ≥ 0.9.17 — older
+versions cannot parse the relative `exclude-newer = "7 days"` cooldown and
+silently drop it from `uv.lock`.
+
+Lockfiles are locked: CI runs with `UV_LOCKED=1` and cargo `--locked`.
+They change only through `task update-dependencies`, a Dependabot PR, or a
+deliberate `uv add` / `cargo add`. uv enforces a 7-day release cooldown
+(`[tool.uv] exclude-newer`), prek does the same for hooks; stable cargo has
+no cooldown yet.
 
 Component-specific tasks:
 
@@ -109,8 +137,8 @@ tag and a draft GitHub release; publishing the draft triggers
 Setup:
 
 ```bash
-uv sync              # install all dependencies
-uv sync --package cli  # install only CLI dependencies
+uv sync                 # install all dependencies
+uv sync --package cosw  # install only CLI dependencies
 ```
 
 ## Rust environment
@@ -211,20 +239,27 @@ Before implementing significant changes, check existing ADRs and consider whethe
 
 ## CI/CD
 
-Three mandatory workflows in `.github/workflows/`:
+Four workflows in `.github/workflows/`:
 
-- **ci.yml**: Pre-commit, type-check, tests with coverage gate
-- **release.yml**: Publish to PyPI on release
-- **codeql-analysis.yml**: CodeQL security scanning
+- **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
+  workspace lint/test, Android lint/test/debug APK
+- **release.yml**: on a published release, stamps the tag version, builds
+  the `cosw` wheel and the signed Android APK, and attaches both to the
+  GitHub release (PyPI publishing is not enabled yet)
+- **codeql-analysis.yml**: CodeQL scanning for python, actions and rust
+- **pr-title.yml**: Conventional Commits check on the PR title — PRs are
+  squash-merged, so the title becomes the commit git-cliff versions from
 
-Dependabot is configured for weekly dependency updates.
+Dependabot opens weekly `chore(deps):` PRs for uv, cargo, gradle and
+actions with a 7-day cooldown. Hook revisions are only bumped by
+`task update-dependencies`.
 
 ## Testing strategy
 
 - **Unit tests**: Test domain logic and storage interface implementations
 - **Integration tests**: Test component interactions through the storage provider
 - **Fixtures**: Shared in `conftest.py` per component
-- **Coverage gate**: 95% for libraries, no gate for apps/services
+- **Coverage gate**: 95% over `cli` and `libs` combined (deliberately stricter than the standard's library-only gate)
 
 Write tests first when fixing bugs or adding features (TDD preferred).
 

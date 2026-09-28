@@ -164,7 +164,7 @@ See `CONTEXT.md` for the complete domain language.
 task check          # lint + typecheck + test (pre-push gate)
 task lint           # ruff check --fix + ruff format
 task typecheck      # ty check
-task test           # pytest with coverage
+task test           # Python + Rust test suites
 task changelog      # preview unreleased notes
 ```
 
@@ -178,7 +178,6 @@ context-switch/
 │   └── contextswitch-core/ # Shared domain model and storage interface
 ├── docs/
 │   ├── architecture.md     # System design
-│   ├── glossary.md         # Domain language
 │   └── adr/                # Architecture Decision Records
 ├── CONTEXT.md              # Domain language reference
 └── AGENTS.md               # Agent guidance for development
