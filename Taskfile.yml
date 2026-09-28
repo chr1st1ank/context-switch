@@ -17,6 +17,8 @@ tasks:
     cmds:
       - uv run ruff check --fix .
       - uv run ruff format .
+      - cargo fmt --all -- --check
+      - cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   prek:
     desc: Run the git hooks against all files (what CI's lint job runs)
@@ -38,7 +40,7 @@ tasks:
     desc: Run all test suites
     cmds:
       - task: test-python
-      - task: core:test
+      - cargo test --workspace --all-features
 
   check:
     desc: Everything that CI checks
@@ -47,15 +49,14 @@ tasks:
       - task: typecheck
       - task: test
 
-  docs:
-    desc: Build documentation
+  update-dependencies:
+    desc: Upgrade every lock file and hook revision (7-day cooldown)
     cmds:
-      - echo "Documentation building not yet configured"
-
-  docs-serve:
-    desc: Serve documentation locally
-    cmds:
-      - echo "Documentation serving not yet configured"
+      - uv lock --upgrade
+      - uv sync
+      - cargo update # no cooldown on stable cargo yet
+      - prek update
+      - task: check
 
   stats:
     desc: Show lines-of-code statistics
