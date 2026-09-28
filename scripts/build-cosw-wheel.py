@@ -2,7 +2,7 @@
 """Build the cosw wheel with contextswitch-core baked in.
 
 contextswitch-core is an internal, unpublished library, so it cannot be a
-regular wheel dependency of cosw (see docs/decisions for context). Instead
+regular wheel dependency of cosw (see docs/adr for context). Instead
 this script builds each package independently with its native tool, then
 merges the compiled `contextswitch_core` package into the `cosw` wheel using
 the standard `wheel` CLI (https://pypi.org/project/wheel/):

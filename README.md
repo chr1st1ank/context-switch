@@ -179,7 +179,7 @@ context-switch/
 ├── docs/
 │   ├── architecture.md     # System design
 │   ├── glossary.md         # Domain language
-│   └── decisions/          # Architecture Decision Records
+│   └── adr/                # Architecture Decision Records
 ├── CONTEXT.md              # Domain language reference
 └── AGENTS.md               # Agent guidance for development
 ```
@@ -248,7 +248,7 @@ Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) for de
 - [System Architecture](docs/architecture.md)
 - [Implementation Backlog](docs/backlog.md)
 - [Domain Language](CONTEXT.md)
-- [Architecture Decisions](docs/decisions/)
+- [Architecture Decisions](docs/adr/)
 - [Agent Guidance](AGENTS.md)
 
 ## Contributing

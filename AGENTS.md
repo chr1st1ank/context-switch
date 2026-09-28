@@ -47,7 +47,7 @@ context-switch/
 │   ├── design.md                 # Implementation details (TBD)
 │   ├── glossary.md               # Domain language
 │   ├── packaging.md              # How the cosw wheel bundles contextswitch-core
-│   └── decisions/                # Architecture Decision Records
+│   └── adr/                      # Architecture Decision Records
 ├── scripts/
 │   └── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
 ├── CONTEXT.md                    # Domain language reference
@@ -201,11 +201,11 @@ Clients handle conflicts by preserving local mutations and reporting them; inter
 
 ## Architecture Decision Records
 
-ADRs live in `docs/decisions/` with MADR-style templates:
+ADRs live in `docs/adr/` with MADR-style templates:
 
 - Numeric filenames: `0001-short-title.md`
 - Status in front matter: proposed, accepted, superseded, deprecated
-- Indexed in `docs/decisions/README.md`
+- Indexed in `docs/adr/README.md`
 
 Before implementing significant changes, check existing ADRs and consider whether a new one is needed.
 
@@ -251,7 +251,7 @@ new features, and remove items from the list as they are implemented.
 - Check `docs/backlog.md` for outstanding work items
 - Check `docs/packaging.md` for how the cosw wheel is built
 - Check `CONTEXT.md` for domain language
-- Check existing ADRs in `docs/decisions/`
+- Check existing ADRs in `docs/adr/`
 - Run `task check` before pushing
 - Follow the patterns in existing code
 

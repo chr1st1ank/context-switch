@@ -75,5 +75,5 @@ interface (`contextswitch-core`): every command is one read–mutate–commit
 transaction. The pending-offline-action queue is deferred until a remote
 provider exists.
 
-See `docs/architecture.md` for the system design and `docs/decisions/` for
+See `docs/architecture.md` for the system design and `docs/adr/` for
 ADRs, including the CLI command surface (ADR-0005).
