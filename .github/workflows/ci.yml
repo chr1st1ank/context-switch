@@ -27,8 +27,23 @@ jobs:
       - name: Install Task
         uses: arduino/setup-task@v2
 
-      - name: Run pre-commit
-        run: task pre-commit
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-check
+
+      - name: Install prek
+        uses: j178/prek-action@v3.0.0
+        with:
+          install-only: true
+
+      - name: Run git hooks
+        run: task prek
 
   typecheck:
     runs-on: ubuntu-latest

@@ -18,10 +18,10 @@ tasks:
       - uv run ruff check --fix .
       - uv run ruff format .
 
-  pre-commit:
-    desc: Run pre-commit hooks against all files (what CI's lint job runs)
+  prek:
+    desc: Run the git hooks against all files (what CI's lint job runs)
     cmds:
-      - uv run pre-commit run --all-files
+      - prek run --all-files
 
   typecheck:
     desc: Type-check everything

@@ -16,7 +16,6 @@ contextswitch-core = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "pre-commit",
     "ruff",
     "ty",
     "pytest",
