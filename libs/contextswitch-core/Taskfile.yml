@@ -4,22 +4,22 @@ tasks:
   build:
     desc: Build the Rust library with Python bindings
     cmds:
-      - cargo build --release
+      - cargo build --release --locked
 
   develop:
     desc: Build and install the Python bindings into the workspace venv
     cmds:
-      - uv run maturin develop
+      - uv run maturin develop --locked
 
   build-wheel:
     desc: Build the Python bindings as a standalone wheel (for cosw's build)
     cmds:
-      - uv run maturin build --release --out dist
+      - uv run maturin build --release --locked --out dist
 
   lint:
     desc: Lint Rust code
     cmds:
-      - cargo clippy --all-targets --all-features -- -D warnings
+      - cargo clippy --all-targets --all-features --locked -- -D warnings
 
   fmt:
     desc: Format Rust code
@@ -34,7 +34,7 @@ tasks:
   test:
     desc: Run Rust tests
     cmds:
-      - cargo test --all-features
+      - cargo test --all-features --locked
 
   doc:
     desc: Build Rust documentation

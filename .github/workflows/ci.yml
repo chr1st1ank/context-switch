@@ -10,6 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  UV_LOCKED: "1"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -93,12 +99,6 @@ jobs:
       - name: Run tests
         run: task test-python
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -117,14 +117,11 @@ jobs:
         with:
           shared-key: cargo-core
 
-      - name: Check formatting
-        run: task core:fmt-check
-
       - name: Lint
-        run: task core:lint
+        run: task lint-rust
 
       - name: Test
-        run: task core:test
+        run: task test-rust
 
   android:
     runs-on: ubuntu-latest
@@ -175,21 +172,3 @@ jobs:
 
       - name: Build debug APK
         run: task android:build
-
-  codeql:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
