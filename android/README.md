@@ -16,7 +16,7 @@ UniFFI-generated Kotlin bindings (`libs/contextswitch-uniffi`).
   stop action — like a podcast player)
 - Offline reads via a cached snapshot; mutations require connectivity
 
-See ADR-0009 (`docs/decisions/`) for the decision record.
+See ADR-0009 (`docs/adr/`) for the decision record.
 
 ## Prerequisites
 

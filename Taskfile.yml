@@ -17,11 +17,18 @@ tasks:
     cmds:
       - uv run ruff check --fix .
       - uv run ruff format .
+      - task: lint-rust
 
-  pre-commit:
-    desc: Run pre-commit hooks against all files (what CI's lint job runs)
+  lint-rust:
+    desc: Check formatting and lint the Cargo workspace
     cmds:
-      - uv run pre-commit run --all-files
+      - cargo fmt --all -- --check
+      - cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  prek:
+    desc: Run the git hooks against all files (what CI's lint job runs)
+    cmds:
+      - prek run --all-files
 
   typecheck:
     desc: Type-check everything
@@ -38,7 +45,12 @@ tasks:
     desc: Run all test suites
     cmds:
       - task: test-python
-      - task: core:test
+      - task: test-rust
+
+  test-rust:
+    desc: Run the Cargo workspace tests
+    cmds:
+      - cargo test --workspace --all-features --locked
 
   check:
     desc: Everything that CI checks
@@ -47,15 +59,14 @@ tasks:
       - task: typecheck
       - task: test
 
-  docs:
-    desc: Build documentation
+  update-dependencies:
+    desc: Upgrade every lock file and hook revision (7-day cooldown)
     cmds:
-      - echo "Documentation building not yet configured"
-
-  docs-serve:
-    desc: Serve documentation locally
-    cmds:
-      - echo "Documentation serving not yet configured"
+      - uv lock --upgrade
+      - uv sync
+      - cargo update # no cooldown on stable cargo yet
+      - prek update
+      - task: check
 
   stats:
     desc: Show lines-of-code statistics

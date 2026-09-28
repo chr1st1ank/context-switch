@@ -1,7 +1,7 @@
 # Implementation Backlog
 
 Outstanding work items for context-switch. When an item is implemented,
-remove it from this list. Check existing ADRs in `docs/decisions/` before
+remove it from this list. Check existing ADRs in `docs/adr/` before
 starting an item — significant work may warrant a new ADR first.
 
 ## Clients
