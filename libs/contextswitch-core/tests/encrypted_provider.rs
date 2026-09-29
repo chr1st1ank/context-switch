@@ -47,7 +47,7 @@ fn wrong_passphrase_fails_decryption() {
 
     let snap = provider_write.read().unwrap();
     let mut logbook = snap.logbook.clone();
-    logbook.add_project("secret_project", at(0)).unwrap();
+    logbook.add_project("secret_project", None, at(0)).unwrap();
     provider_write.commit(logbook, &snap.version).unwrap();
 
     let provider_wrong = GenericProvider::new(blob_store, cipher, Some("wrong_pass".to_string()));
@@ -69,7 +69,7 @@ fn tampered_data_fails_decryption() {
 
     let snap = provider.read().unwrap();
     let mut logbook = snap.logbook.clone();
-    logbook.add_project("p1", at(0)).unwrap();
+    logbook.add_project("p1", None, at(0)).unwrap();
     provider.commit(logbook, &snap.version).unwrap();
 
     // Now corrupt the bytes in the blob store manually
@@ -102,7 +102,7 @@ fn header_tampering_fails() {
 
     let snap = provider.read().unwrap();
     let mut logbook = snap.logbook.clone();
-    logbook.add_project("p1", at(0)).unwrap();
+    logbook.add_project("p1", None, at(0)).unwrap();
     provider.commit(logbook, &snap.version).unwrap();
 
     let mut data = blob_store.get().unwrap().unwrap();

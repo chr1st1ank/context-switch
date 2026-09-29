@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 import click
 from contextswitch_core import Logbook, Project, Tag
@@ -23,9 +24,9 @@ def _require(logbook: Logbook, kind: Kind, name: str) -> Project | Tag:
     return require_project(logbook, name) if kind == "project" else require_tag(logbook, name)
 
 
-def _add(logbook: Logbook, kind: Kind, name: str, at) -> str:
+def _add(logbook: Logbook, kind: Kind, name: str, at, client: str | None = None) -> str:
     if kind == "project":
-        return logbook.add_project(name, at)
+        return logbook.add_project(name, at, client)
     return logbook.add_tag(name, at)
 
 
@@ -48,25 +49,44 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
     items = [i for i in _items(logbook, kind) if show_all or not i.archived]
     items.sort(key=lambda i: i.name.casefold())
     if as_json:
-        payload = [{"id": i.id, "name": i.name, "archived": i.archived} for i in items]
+        payload = []
+        for i in items:
+            entry: dict[str, object] = {
+                "id": i.id,
+                "name": i.name,
+                "archived": i.archived,
+            }
+            if isinstance(i, Project):
+                entry["client"] = i.client
+            payload.append(entry)
         click.echo(json.dumps(payload))
         return
     if not items:
         click.echo(f"No {kind}s.")
         return
     for item in items:
-        suffix = " (archived)" if item.archived else ""
+        notes = []
+        if isinstance(item, Project) and item.client:
+            notes.append(item.client)
+        if item.archived:
+            notes.append("archived")
+        suffix = f" ({', '.join(notes)})" if notes else ""
         click.echo(f"{item.name}{suffix}")
 
 
 def _register(group: click.Group, kind: Kind) -> None:
-    @group.command("add")
-    @click.argument("name")
-    @click.pass_context
-    def add_cmd(ctx: click.Context, name: str) -> None:
+    def add_impl(ctx: click.Context, name: str, client: str | None = None) -> None:
         """Create a new entry."""
-        transact(ctx, lambda logbook: _add(logbook, kind, name, utcnow()))
+        transact(ctx, lambda logbook: _add(logbook, kind, name, utcnow(), client))
         click.echo(f"created {kind} {name}")
+
+    command: Callable[..., Any] = click.pass_context(add_impl)
+    command = click.argument("name")(command)
+    if kind == "project":
+        command = click.option(
+            "--client", "client", metavar="CLIENT", help="Optional client label."
+        )(command)
+    group.command("add")(command)
 
     @group.command("rename")
     @click.argument("old")
@@ -131,3 +151,27 @@ def tags(ctx: click.Context, show_all: bool, as_json: bool) -> None:
 
 _register(projects, "project")
 _register(tags, "tag")
+
+
+@projects.command("client")
+@click.argument("name")
+@click.argument("value", required=False, metavar="CLIENT")
+@click.option("--clear", is_flag=True, help="Remove the client label.")
+@click.pass_context
+def project_client_cmd(ctx: click.Context, name: str, value: str | None, clear: bool) -> None:
+    """Set or clear a project's client label."""
+    if clear and value is not None:
+        raise click.UsageError("--clear takes no CLIENT value")
+    if value is None and not clear:
+        raise click.UsageError("missing CLIENT (or pass --clear)")
+    new_client = None if clear else value
+
+    def mutate(logbook: Logbook) -> None:
+        project = require_project(logbook, name)
+        logbook.set_project_client(project.id, new_client, utcnow())
+
+    transact(ctx, mutate)
+    if clear:
+        click.echo(f"cleared client of project {name}")
+    else:
+        click.echo(f"project {name} client set to {new_client}")

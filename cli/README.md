@@ -24,10 +24,14 @@ cosw edit -1 +focus                         # tag the most recent span
 cosw remove -1 --force                      # delete a span
 
 cosw log --week                      # spans this week
+cosw log --client nasa               # spans whose project is labelled NASA
 cosw report --by project --json      # totals, machine-readable
+cosw report --by client              # totals per project client
 cosw report --by day --from 2026-09-01 --to 2026-09-11
 
-cosw projects                        # list; also: add|rename|archive|unarchive
+cosw projects                        # list; also: add|rename|client|archive|unarchive
+cosw projects add apollo11 --client "NASA"
+cosw projects client apollo11 "ESA"  # set; --clear removes the label
 cosw tags --all                      # include archived
 ```
 

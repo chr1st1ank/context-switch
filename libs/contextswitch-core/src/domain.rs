@@ -99,17 +99,29 @@ pub struct Project {
     pub id: Uuid,
     /// Display name; case-insensitively unique within a logbook.
     pub name: String,
+    /// Optional free-form label naming the project's client. `None` means
+    /// the project has no client; absent keys in older logbooks read as
+    /// `None` too, so this stays schema version 1.
+    pub client: Option<String>,
     /// Archived projects are hidden from pickers but keep their history.
     pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+/// Trim a client label; blank or whitespace-only becomes `None`.
+fn normalize_client(client: Option<String>) -> Option<String> {
+    client
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+}
+
 impl Project {
-    pub fn new(name: impl Into<String>, at: DateTime<Utc>) -> Self {
+    pub fn new(name: impl Into<String>, client: Option<String>, at: DateTime<Utc>) -> Self {
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
+            client: normalize_client(client),
             archived: false,
             created_at: at,
             updated_at: at,
@@ -121,8 +133,9 @@ impl Project {
 #[cfg_attr(feature = "python", pymethods)]
 impl Project {
     #[new]
-    fn py_new(name: String) -> Self {
-        Self::new(name, Utc::now())
+    #[pyo3(signature = (name, client=None))]
+    fn py_new(name: String, client: Option<String>) -> Self {
+        Self::new(name, client, Utc::now())
     }
 
     #[getter]
@@ -133,6 +146,11 @@ impl Project {
     #[getter]
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    #[getter]
+    fn client(&self) -> Option<String> {
+        self.client.clone()
     }
 
     #[getter]
@@ -152,8 +170,8 @@ impl Project {
 
     fn __repr__(&self) -> String {
         format!(
-            "Project(id={}, name={:?}, archived={})",
-            self.id, self.name, self.archived
+            "Project(id={}, name={:?}, client={:?}, archived={})",
+            self.id, self.name, self.client, self.archived
         )
     }
 }
@@ -682,15 +700,16 @@ impl Logbook {
     }
 
     /// Create a project. Names are case-insensitively unique, including
-    /// archived records.
+    /// archived records. `client` is an optional label; blank becomes `None`.
     pub fn add_project(
         &mut self,
         name: impl Into<String>,
+        client: Option<String>,
         at: DateTime<Utc>,
     ) -> Result<Uuid, DomainError> {
         let name = name.into();
         self.check_project_name(&name, None)?;
-        let project = Project::new(name, at);
+        let project = Project::new(name, client, at);
         let id = project.id;
         self.projects.insert(id, project);
         Ok(id)
@@ -709,6 +728,23 @@ impl Logbook {
             .get_mut(&project_id)
             .ok_or(DomainError::ProjectNotFound(project_id))?;
         project.name = name;
+        project.updated_at = at;
+        Ok(())
+    }
+
+    /// Set or clear (`None`) a project's client label. Blank strings are
+    /// normalized to `None`; no uniqueness is enforced across projects.
+    pub fn set_project_client(
+        &mut self,
+        project_id: Uuid,
+        client: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let project = self
+            .projects
+            .get_mut(&project_id)
+            .ok_or(DomainError::ProjectNotFound(project_id))?;
+        project.client = normalize_client(client);
         project.updated_at = at;
         Ok(())
     }
@@ -925,9 +961,14 @@ impl Logbook {
         Ok(self.unassign_span(parse_uuid(&span_id)?, at)?)
     }
 
-    #[pyo3(name = "add_project")]
-    fn py_add_project(&mut self, name: String, at: DateTime<Utc>) -> PyResult<String> {
-        Ok(self.add_project(name, at)?.to_string())
+    #[pyo3(name = "add_project", signature = (name, at, client=None))]
+    fn py_add_project(
+        &mut self,
+        name: String,
+        at: DateTime<Utc>,
+        client: Option<String>,
+    ) -> PyResult<String> {
+        Ok(self.add_project(name, client, at)?.to_string())
     }
 
     #[pyo3(name = "rename_project")]
@@ -938,6 +979,16 @@ impl Logbook {
         at: DateTime<Utc>,
     ) -> PyResult<()> {
         Ok(self.rename_project(parse_uuid(&project_id)?, name, at)?)
+    }
+
+    #[pyo3(name = "set_project_client", signature = (project_id, client, at))]
+    fn py_set_project_client(
+        &mut self,
+        project_id: String,
+        client: Option<String>,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.set_project_client(parse_uuid(&project_id)?, client, at)?)
     }
 
     #[pyo3(name = "set_project_archived")]
@@ -1037,7 +1088,7 @@ mod tests {
     #[test]
     fn switch_stops_and_starts_at_same_instant() {
         let mut logbook = Logbook::new();
-        let project = logbook.add_project("work", at(0)).unwrap();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
         let tag = logbook.add_tag("focus", at(0)).unwrap();
         let first = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
         let second = logbook.switch(at(30), None, vec![tag]).unwrap();
@@ -1071,8 +1122,8 @@ mod tests {
     #[test]
     fn edit_span_updates_fields() {
         let mut logbook = Logbook::new();
-        let project = logbook.add_project("work", at(0)).unwrap();
-        let other = logbook.add_project("play", at(0)).unwrap();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
+        let other = logbook.add_project("play", None, at(0)).unwrap();
         let tag = logbook.add_tag("x", at(0)).unwrap();
         let id = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
         logbook.stop_timer(at(100)).unwrap();
@@ -1120,7 +1171,7 @@ mod tests {
     #[test]
     fn add_span_records_completed_span_without_touching_active() {
         let mut logbook = Logbook::new();
-        let project = logbook.add_project("work", at(0)).unwrap();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
         let active = logbook.start_timer(at(500), Some(project), vec![]).unwrap();
 
         let added = logbook
@@ -1321,7 +1372,7 @@ mod tests {
     #[test]
     fn unassign_span_clears_project() {
         let mut logbook = Logbook::new();
-        let project = logbook.add_project("work", at(0)).unwrap();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
         let id = logbook.start_timer(at(0), Some(project), vec![]).unwrap();
         logbook.stop_timer(at(10)).unwrap();
         logbook.unassign_span(id, at(20)).unwrap();
@@ -1331,12 +1382,12 @@ mod tests {
     #[test]
     fn project_names_unique_case_insensitive() {
         let mut logbook = Logbook::new();
-        let work = logbook.add_project("Work", at(0)).unwrap();
+        let work = logbook.add_project("Work", None, at(0)).unwrap();
         assert!(matches!(
-            logbook.add_project("work", at(0)),
+            logbook.add_project("work", None, at(0)),
             Err(DomainError::DuplicateProjectName(_))
         ));
-        let personal = logbook.add_project("Personal", at(0)).unwrap();
+        let personal = logbook.add_project("Personal", None, at(0)).unwrap();
         assert!(matches!(
             logbook.rename_project(personal, "WORK", at(1)),
             Err(DomainError::DuplicateProjectName(_))
@@ -1359,12 +1410,67 @@ mod tests {
     #[test]
     fn archived_projects_still_block_names() {
         let mut logbook = Logbook::new();
-        let id = logbook.add_project("Work", at(0)).unwrap();
+        let id = logbook.add_project("Work", None, at(0)).unwrap();
         logbook.set_project_archived(id, true, at(1)).unwrap();
         assert!(matches!(
-            logbook.add_project("work", at(2)),
+            logbook.add_project("work", None, at(2)),
             Err(DomainError::DuplicateProjectName(_))
         ));
+    }
+
+    #[test]
+    fn project_client_set_at_creation_and_normalized() {
+        let mut logbook = Logbook::new();
+        let id = logbook
+            .add_project("work", Some("  Acme Corp ".to_string()), at(0))
+            .unwrap();
+        assert_eq!(logbook.projects[&id].client.as_deref(), Some("Acme Corp"));
+        // Blank strings normalize to no client.
+        let blank = logbook
+            .add_project("play", Some("   ".to_string()), at(0))
+            .unwrap();
+        assert_eq!(logbook.projects[&blank].client, None);
+    }
+
+    #[test]
+    fn set_project_client_updates_and_clears() {
+        let mut logbook = Logbook::new();
+        let id = logbook.add_project("work", None, at(0)).unwrap();
+        logbook
+            .set_project_client(id, Some("Acme".to_string()), at(10))
+            .unwrap();
+        assert_eq!(logbook.projects[&id].client.as_deref(), Some("Acme"));
+        assert_eq!(logbook.projects[&id].updated_at, at(10));
+        logbook.set_project_client(id, None, at(20)).unwrap();
+        assert_eq!(logbook.projects[&id].client, None);
+        assert!(matches!(
+            logbook.set_project_client(Uuid::new_v4(), Some("x".to_string()), at(20)),
+            Err(DomainError::ProjectNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn project_without_client_key_deserializes() {
+        // Logbooks written before the client field existed carry no key;
+        // the additive field keeps schema version 1 readable.
+        let json = r#"{
+            "schema_version": 1,
+            "revision": 0,
+            "active_span_id": null,
+            "projects": {"11111111-1111-1111-1111-111111111111": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "name": "work",
+                "archived": false,
+                "created_at": "2023-11-14T22:13:20Z",
+                "updated_at": "2023-11-14T22:13:20Z"
+            }},
+            "tags": {},
+            "spans": {}
+        }"#;
+        let logbook: Logbook = serde_json::from_str(json).unwrap();
+        let project = logbook.projects.values().next().unwrap();
+        assert_eq!(project.client, None);
+        logbook.validate().unwrap();
     }
 
     #[test]
@@ -1434,7 +1540,7 @@ mod tests {
     #[test]
     fn logbook_json_roundtrip() {
         let mut logbook = Logbook::new();
-        let project = logbook.add_project("work", at(0)).unwrap();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
         let tag = logbook.add_tag("focus", at(0)).unwrap();
         logbook
             .start_timer(at(10), Some(project), vec![tag])

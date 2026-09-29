@@ -197,7 +197,7 @@ fn buffered_commit_is_optimistic() {
 
     let snap = provider.snapshot().unwrap();
     let mut logbook = snap.logbook.clone();
-    logbook.add_project("work", at(0)).unwrap();
+    logbook.add_project("work", None, at(0)).unwrap();
 
     let version = provider.commit(logbook, &snap.version).unwrap();
     assert_eq!(version, "1");

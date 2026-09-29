@@ -13,11 +13,12 @@ class Project:
 
     id: str
     name: str
+    client: str | None
     archived: bool
     created_at: datetime
     updated_at: datetime
 
-    def __new__(cls, name: str) -> Project: ...
+    def __new__(cls, name: str, client: str | None = None) -> Project: ...
 
 class Tag:
     """A reusable label that can be attached to a span."""
@@ -118,9 +119,11 @@ class Logbook:
         """Delete a span. Removing the active span discards the running timer."""
     def unassign_span(self, span_id: str, at: datetime) -> None:
         """Clear a span's project assignment."""
-    def add_project(self, name: str, at: datetime) -> str:
+    def add_project(self, name: str, at: datetime, client: str | None = None) -> str:
         """Create a project; names are case-insensitively unique."""
     def rename_project(self, project_id: str, name: str, at: datetime) -> None: ...
+    def set_project_client(self, project_id: str, client: str | None, at: datetime) -> None:
+        """Set or clear (``None``) a project's client label."""
     def set_project_archived(self, project_id: str, archived: bool, at: datetime) -> None: ...
     def add_tag(self, name: str, at: datetime) -> str:
         """Create a tag; names are case-insensitively unique."""

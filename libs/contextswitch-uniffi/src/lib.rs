@@ -54,6 +54,8 @@ pub struct S3Config {
 pub struct ProjectRec {
     pub id: String,
     pub name: String,
+    /// Optional client label; `None` when the project has none.
+    pub client: Option<String>,
     pub archived: bool,
 }
 
@@ -244,6 +246,7 @@ fn snapshot_rec(
             .map(|p| ProjectRec {
                 id: p.id.to_string(),
                 name: p.name.clone(),
+                client: p.client.clone(),
                 archived: p.archived,
             })
             .collect(),
@@ -493,8 +496,25 @@ impl CoswStore {
         self.mutate(|lb| lb.remove_span(span_id))
     }
 
-    pub fn add_project(&self, name: String) -> Result<SnapshotRec, MobileError> {
-        self.mutate(|lb| lb.add_project(name.clone(), Utc::now()).map(|_| ()))
+    pub fn add_project(
+        &self,
+        name: String,
+        client: Option<String>,
+    ) -> Result<SnapshotRec, MobileError> {
+        self.mutate(|lb| {
+            lb.add_project(name.clone(), client.clone(), Utc::now())
+                .map(|_| ())
+        })
+    }
+
+    /// Set or clear (`None`) a project's client label.
+    pub fn set_project_client(
+        &self,
+        project_id: String,
+        client: Option<String>,
+    ) -> Result<SnapshotRec, MobileError> {
+        let project_id = parse_uuid(&project_id)?;
+        self.mutate(|lb| lb.set_project_client(project_id, client.clone(), Utc::now()))
     }
 
     pub fn rename_project(
