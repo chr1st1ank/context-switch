@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.contextswitch.BuildConfig
 import dev.contextswitch.LogbookStore
 import dev.contextswitch.PortableConfigRec
 import dev.contextswitch.SettingsStore
@@ -149,6 +150,10 @@ fun SettingsScreen(store: LogbookStore) {
         }
         fileStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         location?.let { Text("Storage: $it", style = MaterialTheme.typography.bodySmall) }
+
+        HorizontalDivider()
+        Text("About", style = MaterialTheme.typography.titleMedium)
+        Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall)
     }
 
     importCandidate?.let { rec ->
