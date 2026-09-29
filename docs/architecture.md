@@ -145,4 +145,4 @@ For remote storage, client-side envelope encryption is mandatory, not optional (
 
 - Native JSON schema details and migration policy.
 - Conflict export format and retention policy.
-- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.
+- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client).

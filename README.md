@@ -245,7 +245,7 @@ Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) for de
 ## Documentation
 
 - [System Architecture](docs/architecture.md)
-- [Implementation Backlog](docs/backlog.md)
+- [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues)
 - [Domain Language](CONTEXT.md)
 - [Architecture Decisions](docs/adr/)
 - [Agent Guidance](AGENTS.md)
