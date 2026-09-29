@@ -58,6 +58,16 @@ class SettingsStore(context: Context) {
             accessKeyId.isNotBlank() && secretAccessKey.isNotBlank() &&
             passphrase.isNotBlank()
 
+    /** Apply the non-secret fields of a parsed cosw `config.toml`. */
+    fun importPortableConfig(rec: PortableConfigRec) {
+        provider = "s3"
+        bucket = rec.bucket
+        region = rec.region
+        prefix = rec.prefix
+        endpoint = rec.endpoint.orEmpty()
+        usePathStyle = rec.usePathStyle
+    }
+
     fun storageConfig(): StorageConfig =
         StorageConfig.S3(
             S3Config(

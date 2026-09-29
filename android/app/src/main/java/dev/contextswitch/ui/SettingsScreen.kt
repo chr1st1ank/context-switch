@@ -1,5 +1,7 @@
 package dev.contextswitch.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,7 +14,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
+import dev.contextswitch.PortableConfigRec
 import dev.contextswitch.SettingsStore
+import dev.contextswitch.parsePortableConfig
+import dev.contextswitch.serializePortableConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(store: LogbookStore) {
@@ -30,6 +38,54 @@ fun SettingsScreen(store: LogbookStore) {
     var secretKey by remember { mutableStateOf(settings.secretAccessKey) }
     var sessionToken by remember { mutableStateOf(settings.sessionToken) }
     var passphrase by remember { mutableStateOf(settings.passphrase) }
+
+    val scope = rememberCoroutineScope()
+    var importCandidate by remember { mutableStateOf<PortableConfigRec?>(null) }
+    var fileStatus by remember { mutableStateOf<String?>(null) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val text = context.contentResolver.openInputStream(uri)
+                    ?.use { it.readBytes().decodeToString() }
+                    ?: error("could not open selected file")
+                parsePortableConfig(text)
+            }
+            withContext(Dispatchers.Main) {
+                result.onSuccess { importCandidate = it }
+                    .onFailure { fileStatus = "Import failed: ${it.message}" }
+            }
+        }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = serializePortableConfig(
+            settings.bucket,
+            settings.region,
+            settings.prefix,
+            settings.endpoint.ifBlank { null },
+            settings.usePathStyle,
+        )
+        scope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                context.contentResolver.openOutputStream(uri)
+                    ?.use { it.write(text.toByteArray()) }
+                    ?: error("could not open selected file")
+            }
+            withContext(Dispatchers.Main) {
+                fileStatus = result.fold(
+                    onSuccess = { "Config exported" },
+                    onFailure = { "Export failed: ${it.message}" },
+                )
+            }
+        }
+    }
 
     fun save() {
         settings.bucket = bucket.trim()
@@ -71,7 +127,65 @@ fun SettingsScreen(store: LogbookStore) {
             }) { Text("Test") }
         }
         testResult?.let { Text(it) }
+
+        HorizontalDivider()
+        Text("Config file", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Import or export a cosw config.toml. Credentials and the " +
+                "encryption passphrase are never included.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = {
+                fileStatus = null
+                importLauncher.launch(
+                    arrayOf("application/toml", "text/*", "application/octet-stream"),
+                )
+            }) { Text("Import…") }
+            OutlinedButton(onClick = {
+                fileStatus = null
+                exportLauncher.launch("context-switch.toml")
+            }) { Text("Export…") }
+        }
+        fileStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         location?.let { Text("Storage: $it", style = MaterialTheme.typography.bodySmall) }
+    }
+
+    importCandidate?.let { rec ->
+        AlertDialog(
+            onDismissRequest = { importCandidate = null },
+            title = { Text("Import config") },
+            text = {
+                Text(
+                    buildString {
+                        append(
+                            "Replace the current storage settings (bucket, region, " +
+                                "prefix, endpoint, path style) with this file's values? " +
+                                "Credentials and passphrase are unchanged.",
+                        )
+                        if (rec.warnings.isNotEmpty()) {
+                            append("\n\nSkipped keys:\n")
+                            append(rec.warnings.joinToString("\n"))
+                        }
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    settings.importPortableConfig(rec)
+                    bucket = rec.bucket
+                    region = rec.region
+                    prefix = rec.prefix
+                    endpoint = rec.endpoint.orEmpty()
+                    pathStyle = rec.usePathStyle
+                    importCandidate = null
+                    store.open()
+                }) { Text("Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { importCandidate = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 

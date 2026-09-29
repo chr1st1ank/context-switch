@@ -583,3 +583,53 @@ pub fn snapshot_from_json(
         &location_url,
     )
 }
+
+/// Non-secret storage settings parsed from a cosw `config.toml`, plus
+/// warnings for keys the importer skipped. Secrets are never part of the
+/// format — credentials are entered on the device.
+#[derive(uniffi::Record)]
+pub struct PortableConfigRec {
+    pub bucket: String,
+    pub region: String,
+    pub prefix: String,
+    pub endpoint: Option<String>,
+    pub use_path_style: bool,
+    /// One entry per ignored key (unknown or cosw-only fields).
+    pub warnings: Vec<String>,
+}
+
+/// Parse a cosw `config.toml` for import. Fails on malformed TOML,
+/// `provider` other than `"s3"`, or missing/invalid fields; usable
+/// results carry their skipped keys in `warnings`.
+#[uniffi::export]
+pub fn parse_portable_config(toml_text: String) -> Result<PortableConfigRec, MobileError> {
+    let cfg = contextswitch_core::portable_config::parse(&toml_text)
+        .map_err(|e| MobileError::Invalid(e.to_string()))?;
+    Ok(PortableConfigRec {
+        bucket: cfg.bucket,
+        region: cfg.region,
+        prefix: cfg.prefix,
+        endpoint: cfg.endpoint,
+        use_path_style: cfg.use_path_style,
+        warnings: cfg.warnings,
+    })
+}
+
+/// Serialize storage settings as a cosw-compatible `config.toml`.
+/// Output is canonical: optional keys only when non-default.
+#[uniffi::export]
+pub fn serialize_portable_config(
+    bucket: String,
+    region: String,
+    prefix: String,
+    endpoint: Option<String>,
+    use_path_style: bool,
+) -> String {
+    contextswitch_core::portable_config::serialize(
+        &bucket,
+        &region,
+        &prefix,
+        endpoint.as_deref(),
+        use_path_style,
+    )
+}
