@@ -58,8 +58,8 @@ BLOCK_TYPES = [
 # Probabilities (normalized to 100) that sum to 50/25/25
 BLOCK_PROBABILITIES = [50, 25, 25]
 
-# Find cosw on PATH, else use `uv run --package cosw cosw`
-COSW_CMD = ["cosw"] if shutil.which("cosw") else ["uv", "run", "--package", "cosw", "cosw"]
+# Find cosw on PATH, else use `uv run --package contextswitch cosw`
+COSW_CMD = ["cosw"] if shutil.which("cosw") else ["uv", "run", "--package", "contextswitch", "cosw"]
 
 
 def ts(day: date, minute: int) -> str:

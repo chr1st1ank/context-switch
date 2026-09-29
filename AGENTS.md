@@ -6,7 +6,8 @@ This is a multi-component time-tracking system with synchronized storage across 
 
 **context-switch** is a single-user, multi-device time tracking system with:
 
-- **cosw**: Command-line client for laptops (Python/Click)
+- **cosw**: Command-line client for laptops (Python/Click); published on
+  PyPI as the `contextswitch` distribution
 - **Android**: Native Android application
 - **Dashboard**: Reporting and visualization (future)
 - **contextswitch-core**: Shared domain model and storage provider interface (Rust with Python bindings)
@@ -50,11 +51,11 @@ context-switch/
 ├── docs/
 │   ├── architecture.md           # System design
 │   ├── envelope-format.md        # Encrypted logbook envelope format
-│   ├── packaging.md              # How the cosw wheel bundles contextswitch-core
+│   ├── packaging.md              # How the contextswitch wheel bundles contextswitch-core
 │   ├── diagrams/                 # Excalidraw sources + exports
 │   └── adr/                      # Architecture Decision Records
 ├── scripts/
-│   ├── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
+│   ├── build-cosw-wheel.py       # Merges contextswitch-core into the contextswitch wheel
 │   └── simulate.py               # Generates realistic sample data via `cosw add`
 ├── .github/
 │   ├── dependabot.yml            # uv, cargo, gradle, actions; 7-day cooldown
@@ -112,12 +113,12 @@ Component-specific tasks:
 ```bash
 task cli:dev      # run CLI in development mode
 task cli:test     # run CLI tests
-task cli:build    # build the cosw wheel with contextswitch-core baked in
+task cli:build    # build the contextswitch wheel with contextswitch-core baked in
 task core:test    # run core library tests
 ```
 
 See `docs/packaging.md` for how `task cli:build` bundles the unpublished
-`contextswitch-core` library into the `cosw` wheel.
+`contextswitch-core` library into the `contextswitch` wheel.
 
 Releases are tag-driven: versions are never committed to manifests, which
 keep a static placeholder. `release.yml` stamps the release version into
@@ -139,7 +140,7 @@ Setup:
 
 ```bash
 uv sync                 # install all dependencies
-uv sync --package cosw  # install only CLI dependencies
+uv sync --package contextswitch  # install only CLI dependencies
 ```
 
 ## Rust environment
@@ -240,13 +241,16 @@ Before implementing significant changes, check existing ADRs and consider whethe
 
 ## CI/CD
 
-Four workflows in `.github/workflows/`:
+Five workflows in `.github/workflows/`:
 
 - **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
   workspace lint/test, Android lint/test/debug APK
 - **release.yml**: on a published release, stamps the tag version, builds
-  the `cosw` wheel and the signed Android APK, and attaches both to the
-  GitHub release (PyPI publishing is not enabled yet)
+  the `contextswitch` wheel and the signed Android APK, and attaches both
+  to the GitHub release (PyPI publishing is not enabled yet)
+- **test-release.yml**: manual dispatch; stamps a `0.0.1-devN` version
+  computed from the newest release on the index and publishes the wheel to
+  TestPyPI via OIDC trusted publishing (GitHub environment `test-pypi`)
 - **codeql-analysis.yml**: CodeQL scanning for python, actions and rust
 - **pr-title.yml**: Conventional Commits check on the PR title — PRs are
   squash-merged, so the title becomes the commit git-cliff versions from
@@ -284,8 +288,9 @@ Check open issues before planning new features (`gh issue list`).
 ## When in doubt
 
 - Check `docs/architecture.md` for system design
+
 - Check [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues) for outstanding work items
-- Check `docs/packaging.md` for how the cosw wheel is built
+- Check `docs/packaging.md` for how the contextswitch wheel is built
 - Check `CONTEXT.md` for domain language
 - Check existing ADRs in `docs/adr/`
 - Run `task check` before pushing
