@@ -1,8 +1,8 @@
 # Packaging cosw
 
 `contextswitch-core` is unpublished, so it can't be a normal wheel dependency
-of `cosw` — it's a **dev-only** dependency (`[dependency-groups] dev` in
-`cli/pyproject.toml`), installed for local development via `uv sync` but
+of `contextswitch` — it's a **dev-only** dependency (`[dependency-groups] dev`
+in `cli/pyproject.toml`), installed for local development via `uv sync` but
 never listed in the built wheel's `Requires-Dist`.
 
 `task cli:build` runs `scripts/build-cosw-wheel.py`, which builds each
@@ -10,13 +10,14 @@ package independently with its native tool and merges them:
 
 1. `maturin build` compiles contextswitch-core into a correctly tagged wheel
    (e.g. `cp310-abi3-manylinux_2_38_x86_64`).
-2. `uv build` produces a plain, pure-Python `cosw` wheel and sdist.
+2. `uv build` produces a plain, pure-Python `contextswitch` wheel and sdist.
 3. The standard `wheel` CLI (`unpack` / `pack` / `tags`) merges the compiled
-   `contextswitch_core` package into the `cosw` wheel and retags it to match.
+   `contextswitch_core` package into the `contextswitch` wheel and retags it
+   to match.
 
 No custom build backend or build hook is involved — each tool does what it's
-already good at, and the sdist is left untouched. Installing `cosw` from
-source (rather than a wheel) will not include the compiled bindings; that's
+already good at, and the sdist is left untouched. Installing `contextswitch`
+from source (rather than a wheel) will not include the compiled bindings; that's
 intentional, since this isn't published anywhere sdists would be preferred.
 
 ## Why not a build hook or maturin backend?
@@ -49,9 +50,14 @@ placeholder, and the git tag (`v*.*.*`) is the single source of truth.
 --bumped-version`, creates the tag, and opens a draft GitHub release.
 Publishing the draft triggers `release.yml`, whose cosw job stamps the
 workspace checkout via `uv version --package` before `task cli:build` —
-the wheel filename and `cosw`'s dist-info METADATA therefore carry the
-release version, and `cosw --version` resolves it from
+the wheel filename and `contextswitch`'s dist-info METADATA therefore
+carry the release version, and `cosw --version` resolves it from
 `importlib.metadata`. The Android job derives `versionName`/`versionCode`
 from the same tag. The Rust crate versions are never stamped: nothing
 consumes them, and the merged wheel does not include
 contextswitch-core's dist-info.
+
+`test-release.yml` exercises the same stamping path with manual dispatch:
+it computes the next `0.0.1-devN` version from the newest release on
+TestPyPI's JSON API and publishes the result to TestPyPI via OIDC trusted
+publishing (GitHub environment `test-pypi`).

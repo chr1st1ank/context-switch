@@ -1,0 +1,87 @@
+name: Test Release
+
+on:
+  workflow_dispatch:
+
+# Serialize dispatches so the version lookup cannot race a concurrent run.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+
+      - name: Install Task
+        uses: arduino/setup-task@v3
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-core
+
+      # Test releases are dev builds of 0.0.1, numbered from the newest
+      # version already on the index (404 before the first upload → dev1),
+      # so repeated dispatches — and re-runs — always produce a fresh version.
+      - name: Compute next dev version
+        run: |
+          v=$(python3 - <<'PY'
+          import json, re, urllib.request
+          try:
+              with urllib.request.urlopen(
+                  "https://test.pypi.org/pypi/contextswitch/json"
+              ) as r:
+                  releases = json.load(r)["releases"]
+          except Exception:
+              releases = {}
+          dev = [int(m.group(1)) for v in releases
+                 if (m := re.fullmatch(r"0\.0\.1\.dev(\d+)", v))]
+          print(f"0.0.1-dev{max(dev, default=0) + 1}")
+          PY
+          )
+          uv version --package contextswitch "$v"
+          uv version --package contextswitch-core "$v"
+
+      - name: Build distributions
+        run: task cli:build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-dist
+          path: dist/contextswitch-*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: test-pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
