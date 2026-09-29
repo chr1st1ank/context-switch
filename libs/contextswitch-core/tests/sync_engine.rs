@@ -1,7 +1,7 @@
-//! Tests for [`MemoryCachingProvider`]: the conformance suite in `Sync`
-//! commit mode, plus cache-specific behavior — read hits, optimistic
-//! buffered commits, the write buffer's async error surface, and
-//! background refresh.
+//! Tests for [`SyncEngine`] and [`MemoryCachingProvider`]: the
+//! conformance suite against the write-through decorator, plus
+//! engine-specific behavior — read hits, optimistic buffered commits,
+//! the write buffer's async error surface, and background refresh.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -12,7 +12,6 @@ use chrono::{DateTime, Utc};
 use tempfile::tempdir;
 
 use contextswitch_core::blob::InMemoryBlobStore;
-use contextswitch_core::cache::{CommitMode, MemoryCachingProvider, SyncStatus};
 use contextswitch_core::conformance::check_provider_conformance;
 use contextswitch_core::crypto::IdentityCipher;
 use contextswitch_core::domain::Logbook;
@@ -20,6 +19,7 @@ use contextswitch_core::provider::GenericProvider;
 use contextswitch_core::storage::{
     LocalFsProvider, StorageError, StorageProvider, StorageSnapshot,
 };
+use contextswitch_core::sync::{CommitMode, MemoryCachingProvider, SyncEngine, SyncStatus};
 
 fn at(secs: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(1_700_000_000 + secs, 0).unwrap()
@@ -33,8 +33,8 @@ fn generic_provider() -> Arc<GenericProvider> {
     ))
 }
 
-fn cached(inner: Arc<dyn StorageProvider>) -> MemoryCachingProvider {
-    MemoryCachingProvider::new(inner, Duration::from_secs(30), CommitMode::Buffered)
+fn cached(inner: Arc<dyn StorageProvider>) -> SyncEngine {
+    SyncEngine::new(inner, Duration::from_secs(30), CommitMode::Buffered)
 }
 
 /// Poll `f` until it holds or the deadline passes.
@@ -103,6 +103,33 @@ impl StorageProvider for SlowProvider {
     }
 }
 
+/// Fails `fingerprint` a fixed number of times, then delegates.
+struct FlakyProbeProvider {
+    inner: Arc<dyn StorageProvider>,
+    failures_left: AtomicUsize,
+}
+
+impl StorageProvider for FlakyProbeProvider {
+    fn read(&self) -> Result<StorageSnapshot, StorageError> {
+        self.inner.read()
+    }
+
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        self.inner.commit(logbook, expected_version)
+    }
+
+    fn fingerprint(&self) -> Result<String, StorageError> {
+        let exhausted = self
+            .failures_left
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_err();
+        if exhausted {
+            return self.inner.fingerprint();
+        }
+        Err(StorageError::Unavailable("probe outage".to_string()))
+    }
+}
+
 /// Fails commits with `Unavailable` a fixed number of times.
 struct FlakyProvider {
     inner: Arc<dyn StorageProvider>,
@@ -127,18 +154,17 @@ impl StorageProvider for FlakyProvider {
 }
 
 #[test]
-fn sync_mode_conformance_in_memory() {
+fn write_through_conformance_in_memory() {
     check_provider_conformance(|| {
         Box::new(MemoryCachingProvider::new(
             generic_provider(),
             Duration::from_secs(30),
-            CommitMode::Sync,
         ))
     });
 }
 
 #[test]
-fn sync_mode_conformance_local_fs() {
+fn write_through_conformance_local_fs() {
     // Keep the temp dirs alive for the duration of the suite.
     let mut dirs = Vec::new();
     check_provider_conformance(move || {
@@ -149,7 +175,6 @@ fn sync_mode_conformance_local_fs() {
         Box::new(MemoryCachingProvider::new(
             Arc::new(inner),
             Duration::from_secs(30),
-            CommitMode::Sync,
         ))
     });
 }
@@ -159,8 +184,8 @@ fn second_read_is_a_cache_hit() {
     let inner = CountingProvider::new(generic_provider());
     let provider = cached(inner.clone());
 
-    let first = provider.read().unwrap();
-    let second = provider.read().unwrap();
+    let first = provider.snapshot().unwrap();
+    let second = provider.snapshot().unwrap();
     assert_eq!(first.version, second.version);
     assert_eq!(inner.reads.load(Ordering::SeqCst), 1);
 }
@@ -170,7 +195,7 @@ fn buffered_commit_is_optimistic() {
     let inner = generic_provider();
     let provider = cached(inner);
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     let mut logbook = snap.logbook.clone();
     logbook.add_project("work", at(0)).unwrap();
 
@@ -178,7 +203,7 @@ fn buffered_commit_is_optimistic() {
     assert_eq!(version, "1");
 
     // The optimistic state is immediately visible without a delegating read.
-    let reread = provider.read().unwrap();
+    let reread = provider.snapshot().unwrap();
     assert_eq!(reread.version, "1");
     assert_eq!(reread.logbook.projects.len(), 1);
 
@@ -189,7 +214,7 @@ fn buffered_commit_is_optimistic() {
 #[test]
 fn stale_buffered_commit_is_rejected_synchronously() {
     let provider = cached(generic_provider());
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     provider
         .commit(snap.logbook.clone(), &snap.version)
         .unwrap();
@@ -211,12 +236,12 @@ fn buffered_commits_drain_in_order() {
     let inner = generic_provider();
     let provider = cached(inner.clone());
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     let mut lb1 = snap.logbook.clone();
     lb1.add_tag("one", at(0)).unwrap();
     let v1 = provider.commit(lb1, &snap.version).unwrap();
 
-    let mut lb2 = provider.read().unwrap().logbook;
+    let mut lb2 = provider.snapshot().unwrap().logbook;
     lb2.add_tag("two", at(0)).unwrap();
     let v2 = provider.commit(lb2, &v1).unwrap();
     assert_eq!(v2, "2");
@@ -232,7 +257,7 @@ fn conflicting_write_lands_in_failed_writes() {
     let inner = generic_provider();
     let provider = cached(inner.clone());
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
 
     // Another writer commits behind the cache's back.
     let mut external = snap.logbook.clone();
@@ -249,8 +274,8 @@ fn conflicting_write_lands_in_failed_writes() {
     assert_eq!(provider.pending_writes(), 0);
 
     // The cache reconciles to canonical state.
-    assert!(eventually(|| provider.read().unwrap().version == "1"));
-    assert_eq!(provider.read().unwrap().logbook.tags.len(), 1);
+    assert!(eventually(|| provider.snapshot().unwrap().version == "1"));
+    assert_eq!(provider.snapshot().unwrap().logbook.tags.len(), 1);
 }
 
 #[test]
@@ -258,17 +283,21 @@ fn flush_propagates_write_errors() {
     let inner = generic_provider();
     let provider = cached(inner.clone());
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     let mut external = snap.logbook.clone();
     external.add_tag("external", at(0)).unwrap();
     inner.commit(external, &snap.version).unwrap();
 
-    provider
-        .commit(snap.logbook.clone(), &snap.version)
-        .unwrap();
+    let mut mine = snap.logbook.clone();
+    mine.add_tag("mine", at(0)).unwrap();
+    provider.commit(mine, &snap.version).unwrap();
     match provider.flush() {
-        Err(StorageError::Conflict { .. }) => {}
-        other => panic!("expected Conflict from flush, got {other:?}"),
+        Ok(Some(failed)) => {
+            assert!(matches!(failed.error, StorageError::Conflict { .. }));
+            // The rejected mutation is preserved for export/retry.
+            assert_eq!(failed.logbook.tags.len(), 1);
+        }
+        other => panic!("expected a failed write from flush, got {other:?}"),
     }
 }
 
@@ -280,7 +309,7 @@ fn unavailable_writes_are_retried_then_succeed() {
     });
     let provider = cached(flaky);
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     let mut logbook = snap.logbook.clone();
     logbook.add_tag("resilient", at(0)).unwrap();
     provider.commit(logbook, &snap.version).unwrap();
@@ -299,7 +328,7 @@ fn pending_writes_and_sync_status() {
     });
     let provider = cached(slow);
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     provider
         .commit(snap.logbook.clone(), &snap.version)
         .unwrap();
@@ -314,20 +343,45 @@ fn pending_writes_and_sync_status() {
 #[test]
 fn refresh_picks_up_external_change() {
     let inner = generic_provider();
-    let provider = MemoryCachingProvider::new(
+    let provider = SyncEngine::new(
         inner.clone(),
         Duration::from_millis(20),
         CommitMode::Buffered,
     );
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     assert_eq!(snap.version, "0");
 
     let mut external = snap.logbook.clone();
     external.add_tag("external", at(0)).unwrap();
     inner.commit(external, &snap.version).unwrap();
 
-    assert!(eventually(|| provider.read().unwrap().version == "1"));
+    assert!(eventually(|| provider.snapshot().unwrap().version == "1"));
+}
+
+#[test]
+fn degraded_status_recovers_when_probes_resume() {
+    // One failure is consumed by the cold-read probe, one by the first
+    // worker probe; later probes succeed.
+    let flaky = Arc::new(FlakyProbeProvider {
+        inner: generic_provider(),
+        failures_left: AtomicUsize::new(2),
+    });
+    let provider = SyncEngine::new(flaky, Duration::from_millis(0), CommitMode::Buffered);
+
+    provider.snapshot().unwrap();
+
+    // Interval 0 signals a probe on every read.
+    assert!(eventually(|| {
+        let _ = provider.snapshot();
+        matches!(provider.sync_status(), SyncStatus::Degraded(_))
+    }));
+    // A successful probe clears the status even when the fingerprint
+    // still matches and no re-fetch is needed.
+    assert!(eventually(|| {
+        let _ = provider.snapshot();
+        provider.sync_status() == SyncStatus::Clean
+    }));
 }
 
 #[test]
@@ -338,16 +392,16 @@ fn refresh_preserves_optimistic_entry() {
         inner: generic_provider(),
         delay: Duration::from_millis(300),
     });
-    let provider = MemoryCachingProvider::new(slow, Duration::from_millis(0), CommitMode::Buffered);
+    let provider = SyncEngine::new(slow, Duration::from_millis(0), CommitMode::Buffered);
 
-    let snap = provider.read().unwrap();
+    let snap = provider.snapshot().unwrap();
     let mut logbook = snap.logbook.clone();
     logbook.add_tag("pending", at(0)).unwrap();
     provider.commit(logbook, &snap.version).unwrap();
 
     // Refresh interval of 0 triggers a probe on every read, but pending > 0
     // suppresses it; the optimistic entry stands.
-    assert_eq!(provider.read().unwrap().version, "1");
+    assert_eq!(provider.snapshot().unwrap().version, "1");
     provider.flush().unwrap();
-    assert_eq!(provider.read().unwrap().version, "1");
+    assert_eq!(provider.snapshot().unwrap().version, "1");
 }

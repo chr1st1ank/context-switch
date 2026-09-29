@@ -1,7 +1,7 @@
 //! UniFFI bindings exposing contextswitch-core to the Android client.
 //!
 //! The surface is deliberately flat: a [`CoswStore`] object wraps a storage
-//! provider, every mutation performs read → domain op → conditional commit
+//! backend, every mutation performs read → domain op → conditional commit
 //! (with one automatic retry on [`MobileError::Conflict`]), and returns a
 //! fresh [`SnapshotRec`] so the UI always renders committed state.
 //!
@@ -14,14 +14,14 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use contextswitch_core::blob::BlobStore;
-use contextswitch_core::cache::{
-    CommitMode, MemoryCachingProvider, SyncStatus, DEFAULT_REFRESH_INTERVAL,
-};
 use contextswitch_core::crypto::EnvelopeCipher;
 use contextswitch_core::domain::{DomainError, Logbook};
 use contextswitch_core::provider::GenericProvider;
 use contextswitch_core::s3::{AwsCredentials, S3BlobStore};
 use contextswitch_core::storage::{LocalFsProvider, StorageError, StorageProvider};
+use contextswitch_core::sync::{
+    CommitMode, FailedWrite, SyncEngine, SyncStatus, DEFAULT_REFRESH_INTERVAL,
+};
 use uuid::Uuid;
 
 uniffi::setup_scaffolding!();
@@ -157,13 +157,41 @@ pub struct FailedWriteRec {
     pub error: String,
 }
 
-/// A storage provider plus the read-mutate-commit loop the app drives.
+/// How the store reaches canonical data: a provider directly, or a
+/// [`SyncEngine`] replicating it locally.
+enum Backend {
+    Direct(Arc<dyn StorageProvider>),
+    Synced(Arc<SyncEngine>),
+}
+
+impl Backend {
+    fn read(&self) -> Result<contextswitch_core::storage::StorageSnapshot, StorageError> {
+        match self {
+            Backend::Direct(provider) => provider.read(),
+            Backend::Synced(engine) => engine.snapshot(),
+        }
+    }
+
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        match self {
+            Backend::Direct(provider) => provider.commit(logbook, expected_version),
+            Backend::Synced(engine) => engine.commit(logbook, expected_version),
+        }
+    }
+
+    /// The sync engine, when this store was opened via `open_cached`.
+    fn engine(&self) -> Option<&SyncEngine> {
+        match self {
+            Backend::Synced(engine) => Some(engine),
+            Backend::Direct(_) => None,
+        }
+    }
+}
+
+/// A storage backend plus the read-mutate-commit loop the app drives.
 #[derive(uniffi::Object)]
 pub struct CoswStore {
-    provider: Arc<dyn StorageProvider>,
-    /// Set when opened via [`CoswStore::open_cached`]; kept to expose the
-    /// write-buffer status surface.
-    cache: Option<Arc<MemoryCachingProvider>>,
+    backend: Backend,
     location_url: String,
 }
 
@@ -232,6 +260,15 @@ fn snapshot_rec(
     })
 }
 
+fn failed_write_rec(failed: FailedWrite) -> Result<FailedWriteRec, MobileError> {
+    let logbook_json =
+        serde_json::to_string(&failed.logbook).map_err(|e| MobileError::Corrupt(e.to_string()))?;
+    Ok(FailedWriteRec {
+        logbook_json,
+        error: failed.error.to_string(),
+    })
+}
+
 fn open_provider(config: StorageConfig) -> Result<(Arc<dyn StorageProvider>, String), MobileError> {
     match config {
         StorageConfig::Local { path } => {
@@ -278,16 +315,15 @@ impl CoswStore {
     pub fn open(config: StorageConfig) -> Result<Arc<Self>, MobileError> {
         let (provider, location_url) = open_provider(config)?;
         Ok(Arc::new(Self {
-            provider,
-            cache: None,
+            backend: Backend::Direct(provider),
             location_url,
         }))
     }
 
-    /// Open a store behind an in-memory caching provider: `read()` and
-    /// commits never block on storage — commits are optimistic and a
-    /// background worker writes them through in order while revalidating
-    /// the snapshot every `refresh_interval_secs` seconds (0 = default).
+    /// Open a store behind a local replica: `snapshot()` and commits
+    /// never block on storage — commits are optimistic and a background
+    /// worker writes them through in order while revalidating the
+    /// snapshot every `refresh_interval_secs` seconds (0 = default).
     /// Watch [`CoswStore::sync_status`]/[`CoswStore::take_failed_write`]
     /// and call [`CoswStore::flush`] on app pause/exit.
     #[uniffi::constructor]
@@ -301,29 +337,27 @@ impl CoswStore {
         } else {
             Duration::from_secs(refresh_interval_secs)
         };
-        let cache = Arc::new(MemoryCachingProvider::new(
-            inner,
-            interval,
-            CommitMode::Buffered,
-        ));
         Ok(Arc::new(Self {
-            provider: cache.clone(),
-            cache: Some(cache),
+            backend: Backend::Synced(Arc::new(SyncEngine::new(
+                inner,
+                interval,
+                CommitMode::Buffered,
+            ))),
             location_url,
         }))
     }
 
-    /// Buffered commits queued or in flight; always 0 without a cache.
+    /// Buffered commits queued or in flight; always 0 without a replica.
     pub fn pending_writes(&self) -> u32 {
-        self.cache
-            .as_ref()
-            .map(|c| c.pending_writes() as u32)
+        self.backend
+            .engine()
+            .map(|e| e.pending_writes() as u32)
             .unwrap_or(0)
     }
 
     /// Buffer/revalidation state for status displays.
     pub fn sync_status(&self) -> StoreSyncStatus {
-        match self.cache.as_ref().map(|c| c.sync_status()) {
+        match self.backend.engine().map(|e| e.sync_status()) {
             Some(SyncStatus::Pending(n)) => StoreSyncStatus::Pending(n as u32),
             Some(SyncStatus::Degraded(e)) => StoreSyncStatus::Degraded(e),
             _ => StoreSyncStatus::Clean,
@@ -333,36 +367,32 @@ impl CoswStore {
     /// The oldest buffered write the backend rejected, if any. Consumes
     /// it — call repeatedly to drain the failed-writes list.
     pub fn take_failed_write(&self) -> Result<Option<FailedWriteRec>, MobileError> {
-        let Some(failed) = self.cache.as_ref().and_then(|c| c.take_failed_write()) else {
+        let Some(failed) = self.backend.engine().and_then(|e| e.take_failed_write()) else {
             return Ok(None);
         };
-        let logbook_json = serde_json::to_string(&failed.logbook)
-            .map_err(|e| MobileError::Corrupt(e.to_string()))?;
-        Ok(Some(FailedWriteRec {
-            logbook_json,
-            error: failed.error.to_string(),
-        }))
+        failed_write_rec(failed).map(Some)
     }
 
     /// Wait until all commits queued so far have been written (or
-    /// rejected); returns the earliest write failure. Call on app
-    /// pause/exit. No-op without a cache.
-    pub fn flush(&self) -> Result<(), MobileError> {
-        match &self.cache {
-            Some(cache) => cache.flush().map_err(MobileError::from),
-            None => Ok(()),
-        }
+    /// rejected); returns the earliest rejected write, if any — the
+    /// preserved logbook is included so it can be exported or retried.
+    /// Call on app pause/exit. No-op without a replica.
+    pub fn flush(&self) -> Result<Option<FailedWriteRec>, MobileError> {
+        let Some(engine) = self.backend.engine() else {
+            return Ok(None);
+        };
+        engine.flush()?.map(failed_write_rec).transpose()
     }
 
     /// Read the current canonical state.
     pub fn snapshot(&self) -> Result<SnapshotRec, MobileError> {
-        snapshot_rec(self.provider.read()?, &self.location_url)
+        snapshot_rec(self.backend.read()?, &self.location_url)
     }
 
     /// Connectivity/credentials check: performs a read and returns the
     /// resolved location URL.
     pub fn test_connection(&self) -> Result<String, MobileError> {
-        let _ = self.provider.read()?;
+        let _ = self.backend.read()?;
         Ok(self.location_url.clone())
     }
 
@@ -515,10 +545,10 @@ impl CoswStore {
         f: impl Fn(&mut Logbook) -> Result<(), DomainError>,
     ) -> Result<SnapshotRec, MobileError> {
         for attempt in 0..2 {
-            let snap = self.provider.read()?;
+            let snap = self.backend.read()?;
             let mut lb = snap.logbook.clone();
             f(&mut lb)?;
-            match self.provider.commit(lb.clone(), &snap.version) {
+            match self.backend.commit(lb.clone(), &snap.version) {
                 Ok(version) => {
                     lb.revision = version.parse().unwrap_or(lb.revision);
                     return snapshot_rec(
