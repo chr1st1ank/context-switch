@@ -16,6 +16,9 @@ android {
         targetSdk = 36
         versionCode = providers.gradleProperty("versionCode").map(String::toInt).getOrElse(1)
         versionName = providers.gradleProperty("versionName").getOrElse("0.1.0")
+        // Must stay in sync with CS_ABIS in build-rust.sh — no point packaging
+        // JNA libs for ABIs the Rust core doesn't support.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
     signingConfigs {
