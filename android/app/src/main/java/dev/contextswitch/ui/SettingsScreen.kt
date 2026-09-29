@@ -39,6 +39,7 @@ fun SettingsScreen(store: LogbookStore) {
     var secretKey by remember { mutableStateOf(settings.secretAccessKey) }
     var sessionToken by remember { mutableStateOf(settings.sessionToken) }
     var passphrase by remember { mutableStateOf(settings.passphrase) }
+    var syncInterval by remember { mutableStateOf(settings.syncIntervalSecs.toString()) }
 
     val scope = rememberCoroutineScope()
     var importCandidate by remember { mutableStateOf<PortableConfigRec?>(null) }
@@ -98,6 +99,8 @@ fun SettingsScreen(store: LogbookStore) {
         settings.secretAccessKey = secretKey.trim()
         settings.sessionToken = sessionToken.trim()
         settings.passphrase = passphrase
+        settings.syncIntervalSecs = syncInterval.trim().toIntOrNull()
+            ?: SettingsStore.DEFAULT_SYNC_INTERVAL_SECS
         store.open()
     }
 
@@ -152,6 +155,14 @@ fun SettingsScreen(store: LogbookStore) {
         location?.let { Text("Storage: $it", style = MaterialTheme.typography.bodySmall) }
 
         HorizontalDivider()
+        Text("Sync", style = MaterialTheme.typography.titleMedium)
+        Field(
+            "Interval (seconds)",
+            syncInterval,
+            keyboardType = KeyboardType.Number,
+        ) { syncInterval = it.filter(Char::isDigit) }
+
+        HorizontalDivider()
         Text("About", style = MaterialTheme.typography.titleMedium)
         Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall)
     }
@@ -195,14 +206,19 @@ fun SettingsScreen(store: LogbookStore) {
 }
 
 @Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit) {
+private fun Field(
+    label: String,
+    value: String,
+    keyboardType: KeyboardType = KeyboardType.Ascii,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
     )
 }
 
