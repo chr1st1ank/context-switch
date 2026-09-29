@@ -1,7 +1,7 @@
 //! UniFFI bindings exposing contextswitch-core to the Android client.
 //!
 //! The surface is deliberately flat: a [`CoswStore`] object wraps a storage
-//! provider, every mutation performs read → domain op → conditional commit
+//! backend, every mutation performs read → domain op → conditional commit
 //! (with one automatic retry on [`MobileError::Conflict`]), and returns a
 //! fresh [`SnapshotRec`] so the UI always renders committed state.
 //!
@@ -10,6 +10,7 @@
 //! [`S3Config`] — env vars and `~/.aws` do not exist on Android.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use contextswitch_core::blob::BlobStore;
@@ -18,6 +19,9 @@ use contextswitch_core::domain::{DomainError, Logbook};
 use contextswitch_core::provider::GenericProvider;
 use contextswitch_core::s3::{AwsCredentials, S3BlobStore};
 use contextswitch_core::storage::{LocalFsProvider, StorageError, StorageProvider};
+use contextswitch_core::sync::{
+    CommitMode, FailedWrite, SyncEngine, SyncStatus, DEFAULT_REFRESH_INTERVAL,
+};
 use uuid::Uuid;
 
 uniffi::setup_scaffolding!();
@@ -130,10 +134,64 @@ impl From<DomainError> for MobileError {
     }
 }
 
-/// A storage provider plus the read-mutate-commit loop the app drives.
+/// Aggregate state of the write buffer and background revalidation.
+/// Always `Clean` when the store was opened without a cache.
+#[derive(uniffi::Enum)]
+pub enum StoreSyncStatus {
+    /// No pending writes and no refresh failure.
+    Clean,
+    /// This many buffered commits are still queued or being written.
+    Pending(u32),
+    /// The last background refresh failed; the cached snapshot is still
+    /// served. Carries the error's display text.
+    Degraded(String),
+}
+
+/// A buffered commit the storage backend rejected; the mutation is
+/// preserved verbatim so the app can export or retry it.
+#[derive(uniffi::Record)]
+pub struct FailedWriteRec {
+    /// The logbook as it was submitted, serialized as JSON.
+    pub logbook_json: String,
+    /// Why the write was rejected (error display text).
+    pub error: String,
+}
+
+/// How the store reaches canonical data: a provider directly, or a
+/// [`SyncEngine`] replicating it locally.
+enum Backend {
+    Direct(Arc<dyn StorageProvider>),
+    Synced(Arc<SyncEngine>),
+}
+
+impl Backend {
+    fn read(&self) -> Result<contextswitch_core::storage::StorageSnapshot, StorageError> {
+        match self {
+            Backend::Direct(provider) => provider.read(),
+            Backend::Synced(engine) => engine.snapshot(),
+        }
+    }
+
+    fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
+        match self {
+            Backend::Direct(provider) => provider.commit(logbook, expected_version),
+            Backend::Synced(engine) => engine.commit(logbook, expected_version),
+        }
+    }
+
+    /// The sync engine, when this store was opened via `open_cached`.
+    fn engine(&self) -> Option<&SyncEngine> {
+        match self {
+            Backend::Synced(engine) => Some(engine),
+            Backend::Direct(_) => None,
+        }
+    }
+}
+
+/// A storage backend plus the read-mutate-commit loop the app drives.
 #[derive(uniffi::Object)]
 pub struct CoswStore {
-    provider: Box<dyn StorageProvider>,
+    backend: Backend,
     location_url: String,
 }
 
@@ -202,64 +260,139 @@ fn snapshot_rec(
     })
 }
 
+fn failed_write_rec(failed: FailedWrite) -> Result<FailedWriteRec, MobileError> {
+    let logbook_json =
+        serde_json::to_string(&failed.logbook).map_err(|e| MobileError::Corrupt(e.to_string()))?;
+    Ok(FailedWriteRec {
+        logbook_json,
+        error: failed.error.to_string(),
+    })
+}
+
+fn open_provider(config: StorageConfig) -> Result<(Arc<dyn StorageProvider>, String), MobileError> {
+    match config {
+        StorageConfig::Local { path } => {
+            let provider = LocalFsProvider::new(&path)?;
+            let location_url = format!("file://{path}");
+            Ok((Arc::new(provider), location_url))
+        }
+        StorageConfig::S3(cfg) => {
+            let creds = AwsCredentials {
+                access_key_id: cfg.access_key_id,
+                secret_access_key: cfg.secret_access_key,
+                session_token: cfg.session_token,
+            };
+            let blob_store: Arc<dyn BlobStore> = Arc::new(S3BlobStore::with_credentials(
+                cfg.bucket.clone(),
+                cfg.region,
+                cfg.prefix.clone(),
+                cfg.endpoint,
+                cfg.use_path_style,
+                creds,
+            ));
+            let provider = GenericProvider::new(
+                blob_store,
+                Arc::new(EnvelopeCipher::new()),
+                Some(cfg.passphrase),
+            );
+            let key = if cfg.prefix.is_empty() {
+                "logbook.json".to_string()
+            } else if cfg.prefix.ends_with('/') {
+                format!("{}logbook.json", cfg.prefix)
+            } else {
+                format!("{}/logbook.json", cfg.prefix)
+            };
+            Ok((Arc::new(provider), format!("s3://{}/{}", cfg.bucket, key)))
+        }
+    }
+}
+
 #[uniffi::export]
 impl CoswStore {
     /// Open a store for the given backend. Local paths are created on first
     /// commit; S3 performs no network I/O until the first read/write.
     #[uniffi::constructor]
     pub fn open(config: StorageConfig) -> Result<Arc<Self>, MobileError> {
-        match config {
-            StorageConfig::Local { path } => {
-                let provider = LocalFsProvider::new(&path)?;
-                let location_url = format!("file://{path}");
-                Ok(Arc::new(Self {
-                    provider: Box::new(provider),
-                    location_url,
-                }))
-            }
-            StorageConfig::S3(cfg) => {
-                let creds = AwsCredentials {
-                    access_key_id: cfg.access_key_id,
-                    secret_access_key: cfg.secret_access_key,
-                    session_token: cfg.session_token,
-                };
-                let blob_store: Arc<dyn BlobStore> = Arc::new(S3BlobStore::with_credentials(
-                    cfg.bucket.clone(),
-                    cfg.region,
-                    cfg.prefix.clone(),
-                    cfg.endpoint,
-                    cfg.use_path_style,
-                    creds,
-                ));
-                let provider = GenericProvider::new(
-                    blob_store,
-                    Arc::new(EnvelopeCipher::new()),
-                    Some(cfg.passphrase),
-                );
-                let key = if cfg.prefix.is_empty() {
-                    "logbook.json".to_string()
-                } else if cfg.prefix.ends_with('/') {
-                    format!("{}logbook.json", cfg.prefix)
-                } else {
-                    format!("{}/logbook.json", cfg.prefix)
-                };
-                Ok(Arc::new(Self {
-                    provider: Box::new(provider),
-                    location_url: format!("s3://{}/{}", cfg.bucket, key),
-                }))
-            }
+        let (provider, location_url) = open_provider(config)?;
+        Ok(Arc::new(Self {
+            backend: Backend::Direct(provider),
+            location_url,
+        }))
+    }
+
+    /// Open a store behind a local replica: `snapshot()` and commits
+    /// never block on storage — commits are optimistic and a background
+    /// worker writes them through in order while revalidating the
+    /// snapshot every `refresh_interval_secs` seconds (0 = default).
+    /// Watch [`CoswStore::sync_status`]/[`CoswStore::take_failed_write`]
+    /// and call [`CoswStore::flush`] on app pause/exit.
+    #[uniffi::constructor]
+    pub fn open_cached(
+        config: StorageConfig,
+        refresh_interval_secs: u64,
+    ) -> Result<Arc<Self>, MobileError> {
+        let (inner, location_url) = open_provider(config)?;
+        let interval = if refresh_interval_secs == 0 {
+            DEFAULT_REFRESH_INTERVAL
+        } else {
+            Duration::from_secs(refresh_interval_secs)
+        };
+        Ok(Arc::new(Self {
+            backend: Backend::Synced(Arc::new(SyncEngine::new(
+                inner,
+                interval,
+                CommitMode::Buffered,
+            ))),
+            location_url,
+        }))
+    }
+
+    /// Buffered commits queued or in flight; always 0 without a replica.
+    pub fn pending_writes(&self) -> u32 {
+        self.backend
+            .engine()
+            .map(|e| e.pending_writes() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Buffer/revalidation state for status displays.
+    pub fn sync_status(&self) -> StoreSyncStatus {
+        match self.backend.engine().map(|e| e.sync_status()) {
+            Some(SyncStatus::Pending(n)) => StoreSyncStatus::Pending(n as u32),
+            Some(SyncStatus::Degraded(e)) => StoreSyncStatus::Degraded(e),
+            _ => StoreSyncStatus::Clean,
         }
+    }
+
+    /// The oldest buffered write the backend rejected, if any. Consumes
+    /// it — call repeatedly to drain the failed-writes list.
+    pub fn take_failed_write(&self) -> Result<Option<FailedWriteRec>, MobileError> {
+        let Some(failed) = self.backend.engine().and_then(|e| e.take_failed_write()) else {
+            return Ok(None);
+        };
+        failed_write_rec(failed).map(Some)
+    }
+
+    /// Wait until all commits queued so far have been written (or
+    /// rejected); returns the earliest rejected write, if any — the
+    /// preserved logbook is included so it can be exported or retried.
+    /// Call on app pause/exit. No-op without a replica.
+    pub fn flush(&self) -> Result<Option<FailedWriteRec>, MobileError> {
+        let Some(engine) = self.backend.engine() else {
+            return Ok(None);
+        };
+        engine.flush()?.map(failed_write_rec).transpose()
     }
 
     /// Read the current canonical state.
     pub fn snapshot(&self) -> Result<SnapshotRec, MobileError> {
-        snapshot_rec(self.provider.read()?, &self.location_url)
+        snapshot_rec(self.backend.read()?, &self.location_url)
     }
 
     /// Connectivity/credentials check: performs a read and returns the
     /// resolved location URL.
     pub fn test_connection(&self) -> Result<String, MobileError> {
-        let _ = self.provider.read()?;
+        let _ = self.backend.read()?;
         Ok(self.location_url.clone())
     }
 
@@ -412,10 +545,10 @@ impl CoswStore {
         f: impl Fn(&mut Logbook) -> Result<(), DomainError>,
     ) -> Result<SnapshotRec, MobileError> {
         for attempt in 0..2 {
-            let snap = self.provider.read()?;
+            let snap = self.backend.read()?;
             let mut lb = snap.logbook.clone();
             f(&mut lb)?;
-            match self.provider.commit(lb.clone(), &snap.version) {
+            match self.backend.commit(lb.clone(), &snap.version) {
                 Ok(version) => {
                     lb.revision = version.parse().unwrap_or(lb.revision);
                     return snapshot_rec(

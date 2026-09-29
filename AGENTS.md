@@ -38,6 +38,7 @@ context-switch/
 │   │   │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
 │   │   │   ├── s3.rs             # S3BlobStore + SigV4 signing
 │   │   │   ├── crypto.rs         # Client-side envelope encryption (age)
+│   │   │   ├── sync.rs           # SyncEngine replica + MemoryCachingProvider decorator
 │   │   │   └── conformance.rs    # Provider conformance test suite
 │   │   ├── python/               # Python type stubs
 │   │   ├── tests/                # Rust integration tests + Python binding tests

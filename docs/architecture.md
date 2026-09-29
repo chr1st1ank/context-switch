@@ -41,6 +41,8 @@ Dashboard ────────┘
 
 A client contains platform UI/lifecycle integration, cached data and pending offline actions, and the common domain/synchronization/reporting logic where its language permits. The dashboard is a client, not a reporting service.
 
+For the concrete type-level map — which structs exist, who constructs them, and how a call travels through the stack — see [components.md](./components.md).
+
 ## 4. Domain model
 
 ### Span

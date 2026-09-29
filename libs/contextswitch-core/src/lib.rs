@@ -52,6 +52,7 @@ pub mod domain;
 pub mod provider;
 pub mod s3;
 pub mod storage;
+pub mod sync;
 
 /// Python exception types raised by the bindings.
 #[cfg(feature = "python")]
