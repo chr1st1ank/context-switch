@@ -247,8 +247,9 @@ Five workflows in `.github/workflows/`:
 - **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
   workspace lint/test, Android lint/test/debug APK
 - **release.yml**: on a published release, stamps the tag version, builds
-  the `contextswitch` wheel and the signed Android APK, and attaches both
-  to the GitHub release (PyPI publishing is not enabled yet)
+  the `contextswitch` wheel and the signed Android APK, attaches both to
+  the GitHub release, and publishes the wheel to PyPI via OIDC trusted
+  publishing (GitHub environment `prod`)
 - **test-release.yml**: manual dispatch; stamps a `0.0.1-devN` version
   computed from the newest release on the index and publishes the wheel to
   TestPyPI via OIDC trusted publishing (GitHub environment `test-pypi`)
