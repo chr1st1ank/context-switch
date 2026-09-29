@@ -61,3 +61,14 @@ contextswitch-core's dist-info.
 it computes the next `0.0.1-devN` version from the newest release on
 TestPyPI's JSON API and publishes the result to TestPyPI via OIDC trusted
 publishing (GitHub environment `test-pypi`).
+
+## PyPI metadata
+
+The project page on PyPI renders `cli/README.md` plus the `[project]`
+fields in `cli/pyproject.toml` (description, authors, keywords,
+classifiers, `[project.urls]`). The license is declared as the SPDX
+expression `license = "Apache-2.0"` — deliberately without a `License ::`
+classifier, which PyPI rejects in combination — and `cli/LICENSE` is a
+copy of the repo-root license shipped in the wheel's `dist-info/licenses/`
+(hatchling's `license-files` globs cannot reach outside the project
+directory).
