@@ -9,8 +9,8 @@ exclude-newer-span = "P7D"
 [manifest]
 members = [
     "context-switch",
+    "contextswitch",
     "contextswitch-core",
-    "cosw",
 ]
 
 [[package]]
@@ -36,8 +36,8 @@ name = "context-switch"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "contextswitch" },
     { name = "contextswitch-core" },
-    { name = "cosw" },
 ]
 
 [package.dev-dependencies]
@@ -52,8 +52,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "contextswitch", editable = "cli" },
     { name = "contextswitch-core", editable = "libs/contextswitch-core" },
-    { name = "cosw", editable = "cli" },
 ]
 
 [package.metadata.requires-dev]
@@ -67,22 +67,7 @@ dev = [
 ]
 
 [[package]]
-name = "contextswitch-core"
-version = "0.1.0"
-source = { editable = "libs/contextswitch-core" }
-
-[package.dev-dependencies]
-dev = [
-    { name = "maturin" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [{ name = "maturin", specifier = ">=1.0,<2.0" }]
-
-[[package]]
-name = "cosw"
+name = "contextswitch"
 version = "0.1.0"
 source = { editable = "cli" }
 dependencies = [
@@ -99,6 +84,21 @@ requires-dist = [{ name = "click", specifier = ">=8.1.0" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "contextswitch-core", editable = "libs/contextswitch-core" }]
+
+[[package]]
+name = "contextswitch-core"
+version = "0.1.0"
+source = { editable = "libs/contextswitch-core" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.0,<2.0" }]
 
 [[package]]
 name = "coverage"

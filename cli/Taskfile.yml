@@ -4,7 +4,7 @@ tasks:
   dev:
     desc: Run the CLI in development mode
     cmds:
-      - uv run --package cosw cosw --help
+      - uv run --package contextswitch cosw --help
 
   lint:
     desc: Lint and format CLI code
@@ -20,12 +20,12 @@ tasks:
   test:
     desc: Run CLI tests
     cmds:
-      - uv run --package cosw pytest tests
+      - uv run --package contextswitch pytest tests
 
   test-cov:
     desc: Run tests with coverage report
     cmds:
-      - uv run --package cosw pytest tests --cov=cosw --cov-report=html
+      - uv run --package contextswitch pytest tests --cov=cosw --cov-report=html
 
   build:
     desc: Build CLI distribution (wheel bundles the compiled contextswitch-core)

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Build the cosw wheel with contextswitch-core baked in.
+"""Build the contextswitch wheel (the `cosw` CLI) with contextswitch-core baked in.
 
 contextswitch-core is an internal, unpublished library, so it cannot be a
-regular wheel dependency of cosw (see docs/adr for context). Instead
+regular wheel dependency of contextswitch (see docs/adr for context). Instead
 this script builds each package independently with its native tool, then
-merges the compiled `contextswitch_core` package into the `cosw` wheel using
-the standard `wheel` CLI (https://pypi.org/project/wheel/):
+merges the compiled `contextswitch_core` package into the `contextswitch`
+wheel using the standard `wheel` CLI (https://pypi.org/project/wheel/):
 
 1. `maturin build` compiles contextswitch-core and produces a correctly
    tagged wheel (e.g. `cp310-abi3-manylinux_2_38_x86_64`).
-2. `uv build` produces a plain, pure-Python `cosw` wheel and sdist.
+2. `uv build` produces a plain, pure-Python `contextswitch` wheel and sdist.
 3. `wheel unpack` both wheels, copy the compiled `contextswitch_core/`
-   package into the unpacked cosw tree, flip `Root-Is-Purelib` to false,
-   `wheel pack` (which recomputes RECORD hashes) and `wheel tags` to rename
-   the result to contextswitch-core's platform/ABI tag.
+   package into the unpacked contextswitch tree, flip `Root-Is-Purelib` to
+   false, `wheel pack` (which recomputes RECORD hashes) and `wheel tags` to
+   rename the result to contextswitch-core's platform/ABI tag.
 
 The sdist is copied through unmodified: installing from source requires a
 Rust toolchain and is not a goal here, only prebuilt-wheel installs are.
@@ -49,9 +49,9 @@ def build_core_wheel(stage: Path) -> Path:
 
 
 def build_cosw_dist(stage: Path) -> tuple[Path, Path]:
-    run(["uv", "build", "--package", "cosw", "--out-dir", str(stage)], cwd=REPO_ROOT)
-    (wheel,) = stage.glob("cosw-*.whl")
-    (sdist,) = stage.glob("cosw-*.tar.gz")
+    run(["uv", "build", "--package", "contextswitch", "--out-dir", str(stage)], cwd=REPO_ROOT)
+    (wheel,) = stage.glob("contextswitch-*.whl")
+    (sdist,) = stage.glob("contextswitch-*.tar.gz")
     return wheel, sdist
 
 
@@ -66,7 +66,7 @@ def merge_wheels(core_wheel: Path, cosw_wheel: Path, unpack_dir: Path) -> Path:
     run([sys.executable, "-m", "wheel", "unpack", str(cosw_wheel), "--dest", str(unpack_dir)])
 
     (core_extracted,) = unpack_dir.glob("contextswitch_core-*")
-    (cosw_extracted,) = unpack_dir.glob("cosw-*")
+    (cosw_extracted,) = unpack_dir.glob("contextswitch-*")
 
     shutil.copytree(
         core_extracted / "contextswitch_core",
@@ -85,7 +85,7 @@ def merge_wheels(core_wheel: Path, cosw_wheel: Path, unpack_dir: Path) -> Path:
     )
 
     run([sys.executable, "-m", "wheel", "pack", str(cosw_extracted), "--dest-dir", str(unpack_dir)])
-    (repacked,) = unpack_dir.glob("cosw-*-py3-none-any.whl")
+    (repacked,) = unpack_dir.glob("contextswitch-*-py3-none-any.whl")
 
     python_tag, abi_tag, platform_tag = wheel_tag(core_wheel)
     run(
@@ -101,7 +101,7 @@ def merge_wheels(core_wheel: Path, cosw_wheel: Path, unpack_dir: Path) -> Path:
             str(repacked),
         ]
     )
-    (final_wheel,) = unpack_dir.glob(f"cosw-*-{python_tag}-{abi_tag}-{platform_tag}.whl")
+    (final_wheel,) = unpack_dir.glob(f"contextswitch-*-{python_tag}-{abi_tag}-{platform_tag}.whl")
     return final_wheel
 
 

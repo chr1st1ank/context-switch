@@ -41,7 +41,7 @@ jobs:
       - name: Stamp version from tag
         run: |
           v="${{ github.event.release.tag_name }}"
-          uv version --package cosw "${v#v}"
+          uv version --package contextswitch "${v#v}"
           uv version --package contextswitch-core "${v#v}"
 
       - name: Build distributions
@@ -51,7 +51,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: cosw-wheel
-          path: dist/cosw-*.whl
+          path: dist/contextswitch-*.whl
 
       # - name: Publish to PyPI
       #   uses: pypa/gh-action-pypi-publish@release/v1

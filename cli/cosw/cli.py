@@ -11,6 +11,7 @@ import click
 from click.core import ParameterSource
 from contextswitch_core import Logbook, StorageError, decrypt_envelope
 
+from cosw import __version__
 from cosw.config import (
     CONFIG_SKELETON,
     ENV_CONFIG,
@@ -53,7 +54,7 @@ from cosw.timeparse import fmt_duration, fmt_time, utcnow
     envvar=ENV_CONFIG,
     help="Path to the config file.",
 )
-@click.version_option()
+@click.version_option(version=__version__)
 @click.pass_context
 def main(ctx: click.Context, data_file: Path | None, config_file: Path | None) -> None:
     """context-switch time tracking CLI."""
