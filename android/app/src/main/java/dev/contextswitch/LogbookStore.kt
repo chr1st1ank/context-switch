@@ -67,7 +67,8 @@ class LogbookStore(private val context: Context) {
         runOp { editSpan(spanId, start, stop, tagIds) }
     fun assignProject(spanId: String, projectId: String?) = runOp { assignProject(spanId, projectId) }
     fun removeSpan(spanId: String) = runOp { removeSpan(spanId) }
-    fun addProject(name: String) = runOp { addProject(name) }
+    fun addProject(name: String, client: String? = null) = runOp { addProject(name, client) }
+    fun setProjectClient(id: String, client: String?) = runOp { setProjectClient(id, client) }
     fun renameProject(id: String, name: String) = runOp { renameProject(id, name) }
     fun setProjectArchived(id: String, archived: Boolean) = runOp { setProjectArchived(id, archived) }
     fun addTag(name: String) = runOp { addTag(name) }

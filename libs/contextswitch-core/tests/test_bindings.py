@@ -85,3 +85,27 @@ def test_json_round_trip() -> None:
     logbook.start_timer(NOW)
     parsed = core.Logbook.from_json(logbook.to_json())
     assert parsed.spans()[0].id == logbook.spans()[0].id
+
+
+def test_project_client() -> None:
+    logbook = core.Logbook()
+    project_id = logbook.add_project("work", NOW, client="  Acme ")
+    project = logbook.project(project_id)
+    assert project is not None
+    assert project.client == "Acme"
+
+    blank_id = logbook.add_project("play", NOW, client="   ")
+    blank = logbook.project(blank_id)
+    assert blank is not None
+    assert blank.client is None
+
+    logbook.set_project_client(project_id, "Initech", NOW)
+    project = logbook.project(project_id)
+    assert project is not None
+    assert project.client == "Initech"
+    logbook.set_project_client(project_id, None, NOW)
+    project = logbook.project(project_id)
+    assert project is not None
+    assert project.client is None
+
+    assert core.Project("x").client is None

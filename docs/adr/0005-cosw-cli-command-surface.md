@@ -52,8 +52,8 @@ cosw [--data-file PATH] COMMAND ...
 ├── edit [SPAN] [+TAG ...] [--start W] [--stop W] [--project N | --unassign] [--untag T]
 ├── remove SPAN [-f]
 ├── log    [filters] [-r] [-c|-C] [-j]
-├── report [filters] [--by project|tag|day] [-c|-C] [-j]
-├── projects [--all] [-j] | projects add|rename|archive|unarchive
+├── report [filters] [--by project|tag|client|day] [-c|-C] [-j]
+├── projects [--all] [-j] | projects add [--client C]|rename|client|archive|unarchive
 └── tags     [--all] [-j] | tags     add|rename|archive|unarchive
 ```
 

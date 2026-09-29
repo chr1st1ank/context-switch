@@ -49,7 +49,7 @@ where
     let provider = make_provider();
     let snapshot = provider.read().unwrap();
     let mut logbook = snapshot.logbook.clone();
-    let project = logbook.add_project("work", at(0)).unwrap();
+    let project = logbook.add_project("work", None, at(0)).unwrap();
     logbook.start_timer(at(10), Some(project), vec![]).unwrap();
 
     let version = provider.commit(logbook, &snapshot.version).unwrap();

@@ -144,6 +144,57 @@ def test_report_by_tag(invoke) -> None:
     assert "(untagged)" in result.output
 
 
+def test_report_by_client(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client", "apollo11", "NASA")
+    result = invoke("report", "--by", "client")
+    assert "NASA" in result.output
+    assert "2h 30m" in result.output
+    assert "(no client)" in result.output
+
+
+def test_report_by_client_json(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client", "apollo11", "NASA")
+    payload = json.loads(invoke("report", "--by", "client", "--json").output)
+    assert payload["by"] == "client"
+    assert payload["totals"]["NASA"] == 9000
+    assert payload["totals"]["(no client)"] == 2700
+
+
+def test_log_client_filter(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client", "apollo11", "NASA")
+    result = invoke("log", "--client", "nasa")
+    lines = result.output.strip().splitlines()
+    assert len(lines) == 2
+    assert all("apollo11" in line for line in lines)
+
+
+def test_log_ignore_client(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client", "apollo11", "NASA")
+    result = invoke("log", "--ignore-client", "NASA")
+    assert "apollo11" not in result.output
+    assert "personal" in result.output
+
+
+def test_log_unknown_client_filter_errors(invoke) -> None:
+    _seed(invoke)
+    result = invoke("log", "--client", "nosuch")
+    assert result.exit_code == 1
+    assert "unknown client" in result.output
+
+
+def test_log_json_includes_client(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client", "apollo11", "NASA")
+    payload = json.loads(invoke("log", "--json").output)
+    by_project = {row["project"]: row for row in payload}
+    assert by_project["apollo11"]["client"] == "NASA"
+    assert by_project["personal"]["client"] is None
+
+
 def test_report_by_day(invoke) -> None:
     _seed(invoke)
     result = invoke("report", "--by", "day")
@@ -282,8 +333,10 @@ def test_matching_spans_raises_domain_errors(invoke, data_file: Path) -> None:
         to_str=None,
         projects=(),
         tags=(),
+        clients=(),
         ignore_projects=(),
         ignore_tags=(),
+        ignore_clients=(),
         include_current=True,
     )
     with pytest.raises(UnknownNameError):

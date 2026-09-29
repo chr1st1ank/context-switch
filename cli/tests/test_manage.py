@@ -69,6 +69,44 @@ def test_projects_json(invoke) -> None:
     assert payload[0]["archived"] is False
 
 
+def test_projects_add_with_client(invoke) -> None:
+    result = invoke("projects", "add", "apollo11", "--client", "NASA")
+    assert result.exit_code == 0
+    assert "apollo11 (NASA)" in invoke("projects").output
+
+
+def test_projects_client_set_and_clear(invoke) -> None:
+    invoke("projects", "add", "apollo11")
+    result = invoke("projects", "client", "apollo11", "NASA")
+    assert result.exit_code == 0
+    assert "client set to NASA" in result.output
+    assert "apollo11 (NASA)" in invoke("projects").output
+    result = invoke("projects", "client", "apollo11", "--clear")
+    assert result.exit_code == 0
+    assert "cleared client of project apollo11" in result.output
+    assert "apollo11 (NASA)" not in invoke("projects").output
+
+
+def test_projects_client_errors(invoke) -> None:
+    invoke("projects", "add", "apollo11")
+    result = invoke("projects", "client", "apollo11")
+    assert result.exit_code == 2
+    result = invoke("projects", "client", "apollo11", "NASA", "--clear")
+    assert result.exit_code == 2
+    result = invoke("projects", "client", "nosuch", "NASA")
+    assert result.exit_code == 1
+    assert "unknown project" in result.output
+
+
+def test_projects_json_includes_client(invoke) -> None:
+    invoke("projects", "add", "apollo11", "--client", "NASA")
+    invoke("projects", "add", "personal")
+    payload = json.loads(invoke("projects", "--json").output)
+    by_name = {p["name"]: p for p in payload}
+    assert by_name["apollo11"]["client"] == "NASA"
+    assert by_name["personal"]["client"] is None
+
+
 def test_tags_lifecycle(invoke) -> None:
     assert "No tags" in invoke("tags").output
     invoke("tags", "add", "focus")

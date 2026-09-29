@@ -44,7 +44,7 @@ fn new_does_not_clobber_existing_logbook() {
     let provider = LocalFsProvider::new(&path).unwrap();
     let snapshot = provider.read().unwrap();
     let mut logbook = snapshot.logbook.clone();
-    logbook.add_project("keep", at(0)).unwrap();
+    logbook.add_project("keep", None, at(0)).unwrap();
     provider.commit(logbook, &snapshot.version).unwrap();
 
     // Re-opening must not reset the logbook.
@@ -125,7 +125,7 @@ fn commit_writes_pretty_human_readable_json() {
     let provider = LocalFsProvider::new(&path).unwrap();
     let snapshot = provider.read().unwrap();
     let mut logbook = snapshot.logbook.clone();
-    logbook.add_project("work", at(0)).unwrap();
+    logbook.add_project("work", None, at(0)).unwrap();
     provider.commit(logbook, &snapshot.version).unwrap();
 
     let json = fs::read_to_string(&path).unwrap();
@@ -144,7 +144,7 @@ fn commit_does_not_leave_tmp_on_conflict() {
     let provider = LocalFsProvider::new(&path).unwrap();
     let snapshot = provider.read().unwrap();
     let mut logbook = snapshot.logbook.clone();
-    logbook.add_project("a", at(0)).unwrap();
+    logbook.add_project("a", None, at(0)).unwrap();
     provider.commit(logbook.clone(), &snapshot.version).unwrap();
     let _ = provider.commit(logbook, &snapshot.version);
     assert!(!dir.path().join("data.json.tmp").exists());
