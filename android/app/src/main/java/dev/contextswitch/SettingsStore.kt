@@ -53,6 +53,11 @@ class SettingsStore(context: Context) {
         get() = secrets.getString("passphrase", "") ?: ""
         set(v) = secrets.edit { putString("passphrase", v) }
 
+    /** How often the app re-fetches remote state while active. */
+    var syncIntervalSecs: Int
+        get() = prefs.getInt("sync_interval_secs", DEFAULT_SYNC_INTERVAL_SECS)
+        set(v) = prefs.edit { putInt("sync_interval_secs", v.coerceIn(MIN_SYNC_INTERVAL_SECS, MAX_SYNC_INTERVAL_SECS)) }
+
     fun isConfigured(): Boolean =
         bucket.isNotBlank() && region.isNotBlank() &&
             accessKeyId.isNotBlank() && secretAccessKey.isNotBlank() &&
@@ -82,4 +87,10 @@ class SettingsStore(context: Context) {
                 passphrase = passphrase,
             ),
         )
+
+    companion object {
+        const val DEFAULT_SYNC_INTERVAL_SECS = 30
+        const val MIN_SYNC_INTERVAL_SECS = 5
+        const val MAX_SYNC_INTERVAL_SECS = 3600
+    }
 }

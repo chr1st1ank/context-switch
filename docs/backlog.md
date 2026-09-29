@@ -17,8 +17,10 @@ timer notification. Remaining:
   approach)
 - Offline queueing of timer actions (architecture §7) — reads already work
   from the cached snapshot
-- Background sync / conflict UX beyond surfacing `MobileError.Conflict`
-- Graceful handling of a timer that was started/stopped remotely (currently error message)
+- Conflict UX beyond surfacing `MobileError.Conflict` — periodic sync now
+  lands (on app foreground, on the configured interval while active, and
+  from TimerService while a timer notification is up), but a mutation can
+  still race a remote change between polls
 
 ### Dashboard web app
 
