@@ -2,9 +2,29 @@
 name = "contextswitch"
 version = "0.1.0"
 description = "context-switch CLI client for time tracking"
+readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Christian Krudewig", email = "chr1st1ank@krudewig-online.de" },
+]
+keywords = ["time-tracking", "timesheet", "cli"]
 requires-python = ">=3.14"
 dependencies = ["click>=8.1.0"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Repository = "https://github.com/chr1st1ank/context-switch"
+Issues = "https://github.com/chr1st1ank/context-switch/issues"
+Changelog = "https://github.com/chr1st1ank/context-switch/releases"
 
 [project.scripts]
 cosw = "cosw.cli:main"

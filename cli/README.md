@@ -5,8 +5,8 @@ The command-line client for context-switch time tracking.
 ## Installation
 
 ```bash
-uv sync
-uv run cosw --help
+uv tool install contextswitch    # or: pipx install contextswitch
+cosw --help
 ```
 
 ## Usage

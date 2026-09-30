@@ -60,4 +60,18 @@ contextswitch-core's dist-info.
 `test-release.yml` exercises the same stamping path with manual dispatch:
 it computes the next `0.0.1-devN` version from the newest release on
 TestPyPI's JSON API and publishes the result to TestPyPI via OIDC trusted
-publishing (GitHub environment `test-pypi`).
+publishing (GitHub environment `test-pypi`). The real `release.yml` has a
+matching `pypi` job (environment `prod`) that publishes the built wheel to
+PyPI — wheel only, since the sdist cannot build the Rust bindings and
+would install a broken package.
+
+## PyPI metadata
+
+The project page on PyPI renders `cli/README.md` plus the `[project]`
+fields in `cli/pyproject.toml` (description, authors, keywords,
+classifiers, `[project.urls]`). The license is declared as the SPDX
+expression `license = "Apache-2.0"` — deliberately without a `License ::`
+classifier, which PyPI rejects in combination — and `cli/LICENSE` is a
+copy of the repo-root license shipped in the wheel's `dist-info/licenses/`
+(hatchling's `license-files` globs cannot reach outside the project
+directory).
