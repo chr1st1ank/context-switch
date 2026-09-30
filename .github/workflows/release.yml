@@ -52,11 +52,19 @@ jobs:
           name: cosw-wheel
           path: dist/contextswitch-*.whl
 
-  android:
+  # Single prod-environment job so a release needs one approval. PyPI
+  # publish runs last: it is the only irreversible step (PyPI rejects
+  # re-uploads), so a failed APK build never leaves a published wheel
+  # behind and any earlier failure re-runs cleanly.
+  publish:
+    needs: cosw
     runs-on: ubuntu-latest
     environment: prod
     permissions:
-      contents: read
+      contents: write # gh release upload
+      id-token: write # PyPI OIDC
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
@@ -124,46 +132,17 @@ jobs:
           "$apksigner" verify --print-certs \
             "contextswitch-${{ steps.version.outputs.name }}.apk"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: android-apk
-          path: contextswitch-*.apk
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: [cosw, android]
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Attach artifacts to release
-        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/* --clobber
-
-  pypi:
-    runs-on: ubuntu-latest
-    needs: cosw
-    environment: prod
-    permissions:
-      id-token: write
-    steps:
-      # Wheel only: the sdist builds without the Rust bindings and would
-      # produce a broken install, so it is not published.
       - name: Download wheel artifact
         uses: actions/download-artifact@v8
         with:
           name: cosw-wheel
           path: dist
 
+      - name: Attach artifacts to release
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/contextswitch-*.whl contextswitch-*.apk --clobber
+
+      # Wheel only: the sdist builds without the Rust bindings and would
+      # produce a broken install, so it is not published.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
