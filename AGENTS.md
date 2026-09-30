@@ -50,7 +50,6 @@ context-switch/
 │   └── contextswitch-uniffi/     # UniFFI bindings for the Android client (ADR-0009)
 ├── docs/
 │   ├── architecture.md           # System design
-│   ├── backlog.md                # Outstanding work items
 │   ├── envelope-format.md        # Encrypted logbook envelope format
 │   ├── packaging.md              # How the contextswitch wheel bundles contextswitch-core
 │   ├── diagrams/                 # Excalidraw sources + exports
@@ -284,13 +283,14 @@ See `docs/architecture.md` section 7 for details.
 
 ## Implementation backlog
 
-`docs/backlog.md` tracks outstanding work items. Check it before planning
-new features, and remove items from the list as they are implemented.
+Outstanding work items are tracked in [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues).
+Check open issues before planning new features (`gh issue list`).
 
 ## When in doubt
 
 - Check `docs/architecture.md` for system design
-- Check `docs/backlog.md` for outstanding work items
+
+- Check [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues) for outstanding work items
 - Check `docs/packaging.md` for how the contextswitch wheel is built
 - Check `CONTEXT.md` for domain language
 - Check existing ADRs in `docs/adr/`
