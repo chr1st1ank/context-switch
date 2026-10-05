@@ -121,7 +121,7 @@ impl StorageProvider for FlakyProbeProvider {
     fn fingerprint(&self) -> Result<String, StorageError> {
         let exhausted = self
             .failures_left
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_err();
         if exhausted {
             return self.inner.fingerprint();
