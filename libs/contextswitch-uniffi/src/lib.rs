@@ -424,12 +424,21 @@ impl CoswStore {
         project_id: Option<String>,
         tag_ids: Vec<String>,
     ) -> Result<SnapshotRec, MobileError> {
+        self.switch_at(Utc::now().to_rfc3339(), project_id, tag_ids)
+    }
+
+    /// Like [`CoswStore::switch`], but at `at` (RFC 3339), which may lie in the
+    /// past or future. Rejected if it precedes the active span's start.
+    pub fn switch_at(
+        &self,
+        at: String,
+        project_id: Option<String>,
+        tag_ids: Vec<String>,
+    ) -> Result<SnapshotRec, MobileError> {
+        let at = parse_time(&at)?;
         let project_id = parse_uuid_opt(&project_id)?;
         let tag_ids = parse_uuid_vec(&tag_ids)?;
-        self.mutate(|lb| {
-            lb.switch(Utc::now(), project_id, tag_ids.clone())
-                .map(|_| ())
-        })
+        self.mutate(|lb| lb.switch(at, project_id, tag_ids.clone()).map(|_| ()))
     }
 
     /// Discard the active timer without recording the time.

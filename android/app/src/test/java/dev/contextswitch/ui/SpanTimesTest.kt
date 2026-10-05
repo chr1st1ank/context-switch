@@ -55,6 +55,21 @@ class SpanTimesTest {
     }
 
     @Test
+    fun `isSwitchTimeValid rejects times before active start`() {
+        val start = "2025-03-10T09:00:30+00:00"
+        assertFalse(isSwitchTimeValid(start, LocalDateTime.of(2025, 3, 10, 9, 0), utc))
+        assertTrue(isSwitchTimeValid(start, LocalDateTime.of(2025, 3, 10, 9, 1), utc))
+        assertTrue(isSwitchTimeValid(start, LocalDateTime.of(2030, 1, 1, 0, 0), utc))
+    }
+
+    @Test
+    fun `fmtDuration shows negative durations`() {
+        assertEquals("-19m 42s", fmtDuration(-1182))
+        assertEquals("-1h 5m", fmtDuration(-3900))
+        assertEquals("1h 5m", fmtDuration(3900))
+    }
+
+    @Test
     fun `toLocalDateTime converts to zone`() {
         assertEquals(
             LocalDateTime.of(2025, 6, 15, 10, 15, 30),

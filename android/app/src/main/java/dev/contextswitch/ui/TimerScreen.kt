@@ -13,7 +13,9 @@ import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
 import kotlinx.coroutines.delay
 import java.time.Duration
+import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -31,6 +33,7 @@ fun TimerScreen(store: LogbookStore) {
     val active = snap?.let { s -> s.activeSpanId?.let { id -> s.spans.firstOrNull { it.id == id } } }
     var projectId by remember { mutableStateOf<String?>(null) }
     var tagIds by remember { mutableStateOf(setOf<String>()) }
+    var switchAtOpen by remember { mutableStateOf(false) }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
 
@@ -101,8 +104,34 @@ fun TimerScreen(store: LogbookStore) {
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
             ) { Text("Stop", style = MaterialTheme.typography.titleLarge) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { store.switchTo(projectId, tagIds.toList()) }) { Text("Switch") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { store.switchTo(projectId, tagIds.toList()) }) { Text("Switch") }
+                    OutlinedButton(onClick = { switchAtOpen = true }) { Text("Switch at…") }
+                }
                 TextButton(onClick = { store.cancel() }) { Text("Cancel") }
+            }
+            if (switchAtOpen) {
+                var at by remember { mutableStateOf(LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES)) }
+                val valid = isSwitchTimeValid(active.startedAt, at)
+                AlertDialog(
+                    onDismissRequest = { switchAtOpen = false },
+                    title = { Text("Switch at…") },
+                    text = {
+                        DateTimeField(
+                            label = "Switch time",
+                            value = at,
+                            error = if (valid) null else "Must not be before the current span started",
+                            onChange = { at = it },
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(enabled = valid, onClick = {
+                            switchAtOpen = false
+                            store.switchAt(resolveIso(null, at), projectId, tagIds.toList())
+                        }) { Text("Switch") }
+                    },
+                    dismissButton = { TextButton(onClick = { switchAtOpen = false }) { Text("Cancel") } },
+                )
             }
         }
     }
