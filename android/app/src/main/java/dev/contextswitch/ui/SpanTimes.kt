@@ -23,5 +23,9 @@ fun resolveIso(originalIso: String?, picked: LocalDateTime, zone: ZoneId = ZoneI
     return toIsoUtc(picked.atZone(zone).toOffsetDateTime())
 }
 
+/** A switch may not happen before the active span started. */
+fun isSwitchTimeValid(activeStartIso: String, picked: LocalDateTime, zone: ZoneId = ZoneId.systemDefault()): Boolean =
+    !parseTime(resolveIso(null, picked, zone)).isBefore(parseTime(activeStartIso))
+
 /** Valid span boundary: stop must be strictly after start. */
 fun isStopAfterStart(start: LocalDateTime, stop: LocalDateTime): Boolean = stop.isAfter(start)

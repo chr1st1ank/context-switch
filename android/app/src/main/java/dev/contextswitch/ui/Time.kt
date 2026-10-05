@@ -19,10 +19,11 @@ fun fmtLocalTime(s: String): String =
 fun localDate(s: String): java.time.LocalDate = parseTime(s).atZoneSameInstant(localZone).toLocalDate()
 
 fun fmtDuration(seconds: Long): String {
-    val d = Duration.ofSeconds(seconds.coerceAtLeast(0))
+    val d = Duration.ofSeconds(kotlin.math.abs(seconds))
+    val sign = if (seconds < 0) "-" else ""
     val h = d.toHours()
     val m = d.toMinutes() % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m ${d.seconds % 60}s"
+    return sign + if (h > 0) "${h}h ${m}m" else "${m}m ${d.seconds % 60}s"
 }
 
 fun toIsoUtc(local: OffsetDateTime): String = local.toInstant().toString()

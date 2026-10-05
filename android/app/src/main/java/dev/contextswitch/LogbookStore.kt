@@ -94,6 +94,7 @@ class LogbookStore(private val context: Context) {
     fun start(projectId: String?, tagIds: List<String>) = runOp { start(projectId, tagIds) }
     fun stop() = runOp { stop() }
     fun switchTo(projectId: String?, tagIds: List<String>) = runOp { `switch`(projectId, tagIds) }
+    fun switchAt(at: String, projectId: String?, tagIds: List<String>) = runOp { switchAt(at, projectId, tagIds) }
     fun cancel() = runOp { cancel() }
     fun addSpan(start: String, stop: String, projectId: String?, tagIds: List<String>) =
         runOp { addSpan(start, stop, projectId, tagIds) }
