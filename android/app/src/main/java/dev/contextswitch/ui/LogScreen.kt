@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -186,7 +188,7 @@ private fun SpanRow(snap: SnapshotRec?, span: SpanRec, modifier: Modifier) {
     )
 }
 
-/** Add or edit a span. Times are entered as local `yyyy-MM-dd HH:mm`. */
+/** Add or edit a span. Start and stop are picked with date/time pickers. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EditSpanDialog(
@@ -196,21 +198,38 @@ private fun EditSpanDialog(
     onSave: (startedIso: String?, stoppedIso: String?, projectId: String?, tagIds: List<String>) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    fun toLocalInput(s: String?) = s?.let { parseTime(it).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) } ?: ""
-    var start by remember { mutableStateOf(toLocalInput(span?.startedAt)) }
-    var stop by remember { mutableStateOf(toLocalInput(span?.stoppedAt)) }
+    val zone = ZoneId.systemDefault()
+    val running = span != null && span.stoppedAt == null
+    var start by remember {
+        mutableStateOf(span?.let { toLocalDateTime(it.startedAt, zone) } ?: LocalDateTime.now().minusHours(1))
+    }
+    var stop by remember {
+        mutableStateOf(span?.stoppedAt?.let { toLocalDateTime(it, zone) }
+            ?: if (span == null) LocalDateTime.now() else null)
+    }
     var projectId by remember { mutableStateOf(span?.projectId) }
     var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
+    val stopError = if (stop != null && !isStopAfterStart(start, stop!!)) {
+        "Must be after start"
+    } else null
+    val canSave = if (running) true else stop != null && stopError == null
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (span == null) "Add span" else "Edit span") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = start, onValueChange = { start = it }, label = { Text("Start (yyyy-MM-dd HH:mm)") }, singleLine = true)
-                OutlinedTextField(value = stop, onValueChange = { stop = it }, label = { Text("Stop (yyyy-MM-dd HH:mm)") }, singleLine = true)
+                DateTimeField(label = "Start", value = start, onChange = { start = it })
+                DateTimeField(
+                    label = "Stop",
+                    value = stop,
+                    placeholder = "Running",
+                    enabled = !running,
+                    error = stopError,
+                    onChange = { stop = it },
+                )
                 Text("Project", style = MaterialTheme.typography.labelMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = projectId == null, onClick = { projectId = null }, label = { Text("unassigned") })
@@ -238,15 +257,17 @@ private fun EditSpanDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                fun parse(input: String): String? = runCatching {
-                    java.time.LocalDateTime.parse(input.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toOffsetDateTime()
-                        .let { toIsoUtc(it) }
-                }.getOrNull()
-                onSave(parse(start), parse(stop), projectId, tagIds.toList())
-            }) { Text("Save") }
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    onSave(
+                        resolveIso(span?.startedAt, start, zone),
+                        if (running) null else stop?.let { resolveIso(span?.stoppedAt, it, zone) },
+                        projectId,
+                        tagIds.toList(),
+                    )
+                },
+            ) { Text("Save") }
         },
         dismissButton = {
             Row {
