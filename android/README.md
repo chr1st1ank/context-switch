@@ -21,7 +21,7 @@ See ADR-0009 (`docs/adr/`) for the decision record.
 ## Prerequisites
 
 - JDK 17+ (`pacman -S jdk17-openjdk`)
-- Android SDK: `platform-tools`, `platforms;android-35`, `build-tools`, `ndk`
+- Android SDK: `platform-tools`, `platforms;android-37.0`, `build-tools`, `ndk`
   (install via `android sdk`/`sdkmanager`; set `ANDROID_HOME`)
 - Rust: `rustup target add aarch64-linux-android x86_64-linux-android`
   and `cargo install cargo-ndk`
