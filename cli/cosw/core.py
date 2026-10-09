@@ -277,6 +277,14 @@ def project_name(logbook: Logbook, span: Span) -> str:
     return project.name if project is not None else "(unassigned)"
 
 
+def client_name(logbook: Logbook, span: Span) -> str | None:
+    """The client label of the span's project, if it has one."""
+    if span.project_id is None:
+        return None
+    project = logbook.project(span.project_id)
+    return project.client if project is not None else None
+
+
 def tag_names(logbook: Logbook, span: Span) -> list[str]:
     names = []
     for tag_id in span.tag_ids:
@@ -300,6 +308,7 @@ def span_to_json(logbook: Logbook, span: Span, now: datetime) -> dict[str, Any]:
         "stopped_at": stopped.isoformat() if stopped is not None else None,
         "active": span.is_active,
         "project": project_name(logbook, span),
+        "client": client_name(logbook, span),
         "tags": tag_names(logbook, span),
         "seconds": int((end - span.started_at).total_seconds()),
     }

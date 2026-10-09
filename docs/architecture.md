@@ -41,6 +41,8 @@ Dashboard ────────┘
 
 A client contains platform UI/lifecycle integration, cached data and pending offline actions, and the common domain/synchronization/reporting logic where its language permits. The dashboard is a client, not a reporting service.
 
+For the concrete type-level map — which structs exist, who constructs them, and how a call travels through the stack — see [components.md](./components.md).
+
 ## 4. Domain model
 
 ### Span
@@ -143,4 +145,4 @@ For remote storage, client-side envelope encryption is mandatory, not optional (
 
 - Native JSON schema details and migration policy.
 - Conflict export format and retention policy.
-- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client) — see `docs/backlog.md`.
+- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client).

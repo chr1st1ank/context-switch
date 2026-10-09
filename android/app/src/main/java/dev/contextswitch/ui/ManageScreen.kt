@@ -31,8 +31,10 @@ fun ManageScreen(store: LogbookStore) {
                     ManageRow(
                         name = p.name,
                         color = projectColor(p.id),
+                        client = p.client,
                         archived = p.archived,
                         onRename = { store.renameProject(p.id, it) },
+                        onSetClient = { store.setProjectClient(p.id, it) },
                         onArchive = { store.setProjectArchived(p.id, !p.archived) },
                     )
                 }
@@ -54,14 +56,36 @@ fun ManageScreen(store: LogbookStore) {
 
     if (showAdd) {
         var name by remember { mutableStateOf("") }
+        var client by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAdd = false },
             title = { Text(if (tab == 0) "New project" else "New tag") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        label = { Text("Name") },
+                    )
+                    if (tab == 0) {
+                        OutlinedTextField(
+                            value = client,
+                            onValueChange = { client = it },
+                            singleLine = true,
+                            label = { Text("Client (optional)") },
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     if (name.isNotBlank()) {
-                        if (tab == 0) store.addProject(name.trim()) else store.addTag(name.trim())
+                        if (tab == 0) {
+                            store.addProject(name.trim(), client.trim().ifBlank { null })
+                        } else {
+                            store.addTag(name.trim())
+                        }
                     }
                     showAdd = false
                 }) { Text("Add") }
@@ -72,31 +96,67 @@ fun ManageScreen(store: LogbookStore) {
 }
 
 @Composable
-private fun ManageRow(name: String, color: Color? = null, archived: Boolean, onRename: (String) -> Unit, onArchive: () -> Unit) {
-    var renaming by remember { mutableStateOf(false) }
+private fun ManageRow(
+    name: String,
+    color: Color? = null,
+    client: String? = null,
+    archived: Boolean,
+    onRename: (String) -> Unit,
+    onSetClient: ((String?) -> Unit)? = null,
+    onArchive: () -> Unit,
+) {
+    var editing by remember { mutableStateOf(false) }
     ListItem(
         leadingContent = color?.let { c ->
             { Box(Modifier.size(12.dp).background(c, CircleShape)) }
         },
         headlineContent = { Text(if (archived) "$name (archived)" else name) },
+        supportingContent = client?.let { c -> { Text(c) } },
         trailingContent = {
             Row {
-                TextButton(onClick = { renaming = true }) { Text("Rename") }
+                TextButton(onClick = { editing = true }) { Text(if (onSetClient != null) "Edit" else "Rename") }
                 TextButton(onClick = onArchive) { Text(if (archived) "Unarchive" else "Archive") }
             }
         },
     )
     HorizontalDivider()
-    if (renaming) {
+    if (editing) {
         var newName by remember { mutableStateOf(name) }
+        var newClient by remember { mutableStateOf(client.orEmpty()) }
         AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Rename") },
-            text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = { if (newName.isNotBlank()) onRename(newName.trim()); renaming = false }) { Text("Save") }
+            onDismissRequest = { editing = false },
+            title = { Text(if (onSetClient != null) "Edit project" else "Rename") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        singleLine = true,
+                        label = { Text("Name") },
+                    )
+                    if (onSetClient != null) {
+                        OutlinedTextField(
+                            value = newClient,
+                            onValueChange = { newClient = it },
+                            singleLine = true,
+                            label = { Text("Client") },
+                        )
+                    }
+                }
             },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newName.isNotBlank()) {
+                        if (newName.trim() != name) onRename(newName.trim())
+                        onSetClient?.let { setClient ->
+                            val c = newClient.trim().ifBlank { null }
+                            if (c != client) setClient(c)
+                        }
+                    }
+                    editing = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
         )
     }
 }

@@ -36,8 +36,10 @@ class Filters:
     to_str: str | None
     projects: tuple[str, ...]
     tags: tuple[str, ...]
+    clients: tuple[str, ...]
     ignore_projects: tuple[str, ...]
     ignore_tags: tuple[str, ...]
+    ignore_clients: tuple[str, ...]
     include_current: bool
 
 
@@ -77,6 +79,19 @@ def _name_ids(logbook: Logbook, names: tuple[str, ...], kind: str) -> set[str]:
     return ids
 
 
+def _client_ids(logbook: Logbook, names: tuple[str, ...]) -> set[str]:
+    """Resolve client labels to the IDs of the projects carrying them."""
+    projects = logbook.projects()
+    ids = set()
+    for name in names:
+        lowered = name.casefold()
+        matched = [p for p in projects if p.client is not None and p.client.casefold() == lowered]
+        if not matched:
+            raise UnknownNameError(f"unknown client: {name}")
+        ids.update(p.id for p in matched)
+    return ids
+
+
 def matching_spans(
     logbook: Logbook, f: Filters, now: datetime
 ) -> list[tuple[Span, datetime, datetime]]:
@@ -88,8 +103,10 @@ def matching_spans(
     lo, hi = bounds(f, now)
     project_ids = _name_ids(logbook, f.projects, "project") if f.projects else None
     tag_ids = _name_ids(logbook, f.tags, "tag") if f.tags else None
+    client_ids = _client_ids(logbook, f.clients) if f.clients else None
     ignore_projects = _name_ids(logbook, f.ignore_projects, "project")
     ignore_tags = _name_ids(logbook, f.ignore_tags, "tag")
+    ignore_clients = _client_ids(logbook, f.ignore_clients)
 
     rows: list[tuple[Span, datetime, datetime]] = []
     for span in logbook.spans():
@@ -97,12 +114,16 @@ def matching_spans(
             continue
         if project_ids is not None and span.project_id not in project_ids:
             continue
+        if client_ids is not None and span.project_id not in client_ids:
+            continue
         span_tag_ids = set(span.tag_ids)
         if tag_ids is not None and not tag_ids <= span_tag_ids:
             continue
         if ignore_projects and span.project_id in ignore_projects:
             continue
         if ignore_tags and ignore_tags & span_tag_ids:
+            continue
+        if ignore_clients and span.project_id in ignore_clients:
             continue
         stop = span.stopped_at if span.stopped_at is not None else now
         clipped_lo = max(span.started_at, lo) if lo is not None else span.started_at

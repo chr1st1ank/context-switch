@@ -5,8 +5,8 @@ The command-line client for context-switch time tracking.
 ## Installation
 
 ```bash
-uv sync
-uv run cosw --help
+uv tool install contextswitch    # or: pipx install contextswitch
+cosw --help
 ```
 
 ## Usage
@@ -24,10 +24,14 @@ cosw edit -1 +focus                         # tag the most recent span
 cosw remove -1 --force                      # delete a span
 
 cosw log --week                      # spans this week
+cosw log --client nasa               # spans whose project is labelled NASA
 cosw report --by project --json      # totals, machine-readable
+cosw report --by client              # totals per project client
 cosw report --by day --from 2026-09-01 --to 2026-09-11
 
-cosw projects                        # list; also: add|rename|archive|unarchive
+cosw projects                        # list; also: add|rename|client|archive|unarchive
+cosw projects add apollo11 --client "NASA"
+cosw projects client apollo11 "ESA"  # set; --clear removes the label
 cosw tags --all                      # include archived
 ```
 
@@ -75,5 +79,5 @@ interface (`contextswitch-core`): every command is one read–mutate–commit
 transaction. The pending-offline-action queue is deferred until a remote
 provider exists.
 
-See `docs/architecture.md` for the system design and `docs/decisions/` for
+See `docs/architecture.md` for the system design and `docs/adr/` for
 ADRs, including the CLI command surface (ADR-0005).

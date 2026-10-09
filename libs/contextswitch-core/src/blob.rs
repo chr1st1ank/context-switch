@@ -24,6 +24,13 @@ pub trait BlobStore: Send + Sync {
 
     /// Put payload conditionally. Returns the new ETag / version.
     fn put(&self, bytes: &[u8], cond: Precondition) -> Result<String, StorageError>;
+
+    /// Opaque change token for the stored blob, without fetching its body;
+    /// `None` when the blob is absent. Cheap backends override this (HEAD
+    /// request, file metadata); the default pays for a full `get`.
+    fn stat(&self) -> Result<Option<String>, StorageError> {
+        Ok(self.get()?.map(|(_, etag)| etag))
+    }
 }
 
 /// In-memory fake blob store for testing concurrency and encryption offline.
@@ -52,6 +59,15 @@ impl Default for InMemoryBlobStore {
 impl BlobStore for InMemoryBlobStore {
     fn get(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
         Ok(self.data.lock().unwrap().clone())
+    }
+
+    fn stat(&self) -> Result<Option<String>, StorageError> {
+        Ok(self
+            .data
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|(_, etag)| etag.clone()))
     }
 
     fn put(&self, bytes: &[u8], cond: Precondition) -> Result<String, StorageError> {
@@ -153,6 +169,22 @@ impl LocalFsBlobStore {
 }
 
 impl BlobStore for LocalFsBlobStore {
+    fn stat(&self) -> Result<Option<String>, StorageError> {
+        match fs::metadata(&self.path) {
+            Ok(meta) => {
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                Ok(Some(format!("{}:{}", mtime, meta.len())))
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn get(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
         if !self.path.exists() {
             return Ok(None);

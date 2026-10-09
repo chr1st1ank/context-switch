@@ -5,6 +5,8 @@ A single-user, multi-device time tracking system with synchronized storage.
 [![CI](https://github.com/chr1st1ank/context-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/chr1st1ank/context-switch/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![prek](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json)](https://github.com/j178/prek)
 
 Start a timer on your phone while grabbing coffee, switch tasks from your
 terminal, and review the week from either device — every client shares the
@@ -162,7 +164,7 @@ See `CONTEXT.md` for the complete domain language.
 task check          # lint + typecheck + test (pre-push gate)
 task lint           # ruff check --fix + ruff format
 task typecheck      # ty check
-task test           # pytest with coverage
+task test           # Python + Rust test suites
 task changelog      # preview unreleased notes
 ```
 
@@ -176,8 +178,7 @@ context-switch/
 │   └── contextswitch-core/ # Shared domain model and storage interface
 ├── docs/
 │   ├── architecture.md     # System design
-│   ├── glossary.md         # Domain language
-│   └── decisions/          # Architecture Decision Records
+│   └── adr/                # Architecture Decision Records
 ├── CONTEXT.md              # Domain language reference
 └── AGENTS.md               # Agent guidance for development
 ```
@@ -244,9 +245,9 @@ Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) for de
 ## Documentation
 
 - [System Architecture](docs/architecture.md)
-- [Implementation Backlog](docs/backlog.md)
+- [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues)
 - [Domain Language](CONTEXT.md)
-- [Architecture Decisions](docs/decisions/)
+- [Architecture Decisions](docs/adr/)
 - [Agent Guidance](AGENTS.md)
 
 ## Contributing

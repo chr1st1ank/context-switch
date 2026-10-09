@@ -42,14 +42,14 @@ compare-and-write without a server.
   "schema_version": 1,
   "revision": 0,
   "active_span_id": null,
-  "projects": { "<uuid>": { "id", "name", "archived", "created_at", "updated_at" } },
+  "projects": { "<uuid>": { "id", "name", "client", "archived", "created_at", "updated_at" } },
   "tags":     { "<uuid>": { "id", "name", "archived", "created_at", "updated_at" } },
   "spans":    { "<uuid>": { "id", "started_at", "stopped_at", "project_id", "tag_ids", "created_at", "updated_at" } }
 }
 ```
 
 - Collections are objects keyed by UUID; timestamps are RFC 3339 UTC;
-  `stopped_at` and `project_id` are nullable.
+  `stopped_at`, `project_id`, and `client` are nullable.
 - `revision` is a monotonic counter incremented by the provider on every
   commit and surfaced through the provider contract as the opaque version
   string.
@@ -139,3 +139,15 @@ behavior described above is unchanged; it now lives in
 exists) tolerates losing a first-write race to another process: the
 losing side's own `IfAbsent` put failing with a conflict is not surfaced
 as an error opening the provider, since the logbook exists either way.
+
+## Amendment (2026-09-29)
+
+`Project` gained an optional `client` field (`"client": string | null`) —
+a free-form label naming the party the work is done for. The schema stays
+at version 1: the field deserializes as `null` when absent, so logbooks
+written before this change read unchanged, and readers built before it
+ignore the key. The accepted tradeoff is that a *writer* built before this
+change silently drops `client` from every project on its next commit —
+additive optional fields must therefore ship to all devices together. This
+establishes the policy for future additive fields: they keep version 1;
+fields requiring a read-path migration bump `schema_version`.

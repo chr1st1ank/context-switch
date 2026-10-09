@@ -6,7 +6,8 @@ This is a multi-component time-tracking system with synchronized storage across 
 
 **context-switch** is a single-user, multi-device time tracking system with:
 
-- **cosw**: Command-line client for laptops (Python/Click)
+- **cosw**: Command-line client for laptops (Python/Click); published on
+  PyPI as the `contextswitch` distribution
 - **Android**: Native Android application
 - **Dashboard**: Reporting and visualization (future)
 - **contextswitch-core**: Shared domain model and storage provider interface (Rust with Python bindings)
@@ -30,33 +31,46 @@ context-switch/
 │   └── Taskfile.yml
 ├── libs/
 │   ├── contextswitch-core/       # Shared domain model and storage interface (Rust)
-│       ├── src/
-│       │   ├── lib.rs            # PyO3 module entry point (`python` feature)
-│       │   ├── domain.rs         # Span, Project, Tag, Logbook types
-│       │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
-│       │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
-│       │   ├── s3.rs             # S3BlobStore + SigV4 signing
-│       │   └── conformance.rs    # Provider conformance test suite
-│       ├── python/               # Python type stubs
-│       ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
-│       ├── pyproject.toml        # Python build config (maturin)
-│       └── Taskfile.yml
+│   │   ├── src/
+│   │   │   ├── lib.rs            # PyO3 module entry point (`python` feature)
+│   │   │   ├── domain.rs         # Span, Project, Tag, Logbook types
+│   │   │   ├── storage.rs        # StorageProvider interface + LocalFsProvider
+│   │   │   ├── provider.rs       # Generic StorageProvider over a BlobStore + Cipher
+│   │   │   ├── blob.rs           # BlobStore layer + LocalFs/S3 stores
+│   │   │   ├── s3.rs             # S3BlobStore + SigV4 signing
+│   │   │   ├── crypto.rs         # Client-side envelope encryption (age)
+│   │   │   ├── portable_config.rs # cosw config.toml parse/serialize for settings transfer
+│   │   │   ├── sync.rs           # SyncEngine replica + MemoryCachingProvider decorator
+│   │   │   └── conformance.rs    # Provider conformance test suite
+│   │   ├── python/               # Python type stubs
+│   │   ├── tests/                # Rust integration tests + Python binding tests
+│   │   ├── Cargo.toml            # Rust dependencies (`python` feature gates PyO3)
+│   │   ├── pyproject.toml        # Python build config (maturin)
+│   │   └── Taskfile.yml
 │   └── contextswitch-uniffi/     # UniFFI bindings for the Android client (ADR-0009)
 ├── docs/
 │   ├── architecture.md           # System design
-│   ├── design.md                 # Implementation details (TBD)
-│   ├── glossary.md               # Domain language
-│   ├── packaging.md              # How the cosw wheel bundles contextswitch-core
-│   └── decisions/                # Architecture Decision Records
+│   ├── envelope-format.md        # Encrypted logbook envelope format
+│   ├── packaging.md              # How the contextswitch wheel bundles contextswitch-core
+│   ├── diagrams/                 # Excalidraw sources + exports
+│   └── adr/                      # Architecture Decision Records
 ├── scripts/
-│   └── build-cosw-wheel.py       # Merges contextswitch-core into the cosw wheel
-├── CONTEXT.md                    # Domain language reference
+│   ├── build-cosw-wheel.py       # Merges contextswitch-core into the contextswitch wheel
+│   └── simulate.py               # Generates realistic sample data via `cosw add`
+├── .github/
+│   ├── dependabot.yml            # uv, cargo, gradle, actions; 7-day cooldown
+│   └── workflows/                # ci, release, codeql-analysis, pr-title
+├── CONTEXT.md                    # Domain glossary (domain-modeling format)
 ├── AGENTS.md                     # This file
 ├── README.md                     # Project overview
+├── SECURITY.md                   # Vulnerability reporting
 ├── Taskfile.yml                  # Root task runner
 ├── pyproject.toml                # uv workspace root
+├── Cargo.toml                    # Cargo workspace root (single Cargo.lock)
+├── cliff.toml                    # git-cliff release notes config
 ├── mise.toml                     # Tool versions
-└── .pre-commit-config.yaml       # Pre-commit hooks
+├── rust-toolchain.toml           # Rust toolchain pin
+└── .pre-commit-config.yaml       # Git hooks, run by prek
 ```
 
 ## Dependency direction
@@ -70,25 +84,41 @@ context-switch/
 All operations run through `task`:
 
 ```bash
-task check        # lint + typecheck + test (the pre-push gate)
-task lint         # ruff check --fix + ruff format
-task typecheck    # ty check
-task test         # pytest with coverage
-task changelog    # preview unreleased notes
-task draft-release # tag + draft GitHub release (humans only)
+task check               # lint + typecheck + test (the pre-push gate)
+task lint                # ruff check --fix + ruff format + lint-rust
+task lint-rust           # cargo fmt --check + clippy over the Cargo workspace
+task typecheck           # ty check
+task test                # test-python + test-rust
+task test-python         # build core bindings (maturin develop) + pytest with coverage
+task test-rust           # cargo test over the Cargo workspace
+task prek                # run all git hooks against all files (CI's lint job)
+task update-dependencies # upgrade uv.lock, Cargo.lock and hook revisions, then check
+task changelog           # preview unreleased notes
+task draft-release       # tag + draft GitHub release (humans only)
 ```
+
+Tool setup: `mise install` provides python, uv, task, git-cliff, prek and
+Rust; then `prek install` once per clone. `uv` must be ≥ 0.9.17 — older
+versions cannot parse the relative `exclude-newer = "7 days"` cooldown and
+silently drop it from `uv.lock`.
+
+Lockfiles are locked: CI runs with `UV_LOCKED=1` and cargo `--locked`.
+They change only through `task update-dependencies`, a Dependabot PR, or a
+deliberate `uv add` / `cargo add`. uv enforces a 7-day release cooldown
+(`[tool.uv] exclude-newer`), prek does the same for hooks; stable cargo has
+no cooldown yet.
 
 Component-specific tasks:
 
 ```bash
 task cli:dev      # run CLI in development mode
 task cli:test     # run CLI tests
-task cli:build    # build the cosw wheel with contextswitch-core baked in
+task cli:build    # build the contextswitch wheel with contextswitch-core baked in
 task core:test    # run core library tests
 ```
 
 See `docs/packaging.md` for how `task cli:build` bundles the unpublished
-`contextswitch-core` library into the `cosw` wheel.
+`contextswitch-core` library into the `contextswitch` wheel.
 
 Releases are tag-driven: versions are never committed to manifests, which
 keep a static placeholder. `release.yml` stamps the release version into
@@ -109,8 +139,8 @@ tag and a draft GitHub release; publishing the draft triggers
 Setup:
 
 ```bash
-uv sync              # install all dependencies
-uv sync --package cli  # install only CLI dependencies
+uv sync                 # install all dependencies
+uv sync --package contextswitch  # install only CLI dependencies
 ```
 
 ## Rust environment
@@ -201,30 +231,41 @@ Clients handle conflicts by preserving local mutations and reporting them; inter
 
 ## Architecture Decision Records
 
-ADRs live in `docs/decisions/` with MADR-style templates:
+ADRs live in `docs/adr/` with MADR-style templates:
 
 - Numeric filenames: `0001-short-title.md`
 - Status in front matter: proposed, accepted, superseded, deprecated
-- Indexed in `docs/decisions/README.md`
+- Indexed in `docs/adr/README.md`
 
 Before implementing significant changes, check existing ADRs and consider whether a new one is needed.
 
 ## CI/CD
 
-Three mandatory workflows in `.github/workflows/`:
+Five workflows in `.github/workflows/`:
 
-- **ci.yml**: Pre-commit, type-check, tests with coverage gate
-- **release.yml**: Publish to PyPI on release
-- **codeql-analysis.yml**: CodeQL security scanning
+- **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
+  workspace lint/test, Android lint/test/debug APK
+- **release.yml**: on a published release, stamps the tag version, builds
+  the `contextswitch` wheel and the signed Android APK, attaches both to
+  the GitHub release, and publishes the wheel to PyPI via OIDC trusted
+  publishing (GitHub environment `prod`)
+- **test-release.yml**: manual dispatch; stamps a `0.0.1-devN` version
+  computed from the newest release on the index and publishes the wheel to
+  TestPyPI via OIDC trusted publishing (GitHub environment `test-pypi`)
+- **codeql-analysis.yml**: CodeQL scanning for python, actions and rust
+- **pr-title.yml**: Conventional Commits check on the PR title — PRs are
+  squash-merged, so the title becomes the commit git-cliff versions from
 
-Dependabot is configured for weekly dependency updates.
+Dependabot opens weekly `chore(deps):` PRs for uv, cargo, gradle and
+actions with a 7-day cooldown. Hook revisions are only bumped by
+`task update-dependencies`.
 
 ## Testing strategy
 
 - **Unit tests**: Test domain logic and storage interface implementations
 - **Integration tests**: Test component interactions through the storage provider
 - **Fixtures**: Shared in `conftest.py` per component
-- **Coverage gate**: 95% for libraries, no gate for apps/services
+- **Coverage gate**: 95% over `cli` and `libs` combined (deliberately stricter than the standard's library-only gate)
 
 Write tests first when fixing bugs or adding features (TDD preferred).
 
@@ -242,16 +283,17 @@ See `docs/architecture.md` section 7 for details.
 
 ## Implementation backlog
 
-`docs/backlog.md` tracks outstanding work items. Check it before planning
-new features, and remove items from the list as they are implemented.
+Outstanding work items are tracked in [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues).
+Check open issues before planning new features (`gh issue list`).
 
 ## When in doubt
 
 - Check `docs/architecture.md` for system design
-- Check `docs/backlog.md` for outstanding work items
-- Check `docs/packaging.md` for how the cosw wheel is built
+
+- Check [GitHub Issues](https://github.com/chr1st1ank/context-switch/issues) for outstanding work items
+- Check `docs/packaging.md` for how the contextswitch wheel is built
 - Check `CONTEXT.md` for domain language
-- Check existing ADRs in `docs/decisions/`
+- Check existing ADRs in `docs/adr/`
 - Run `task check` before pushing
 - Follow the patterns in existing code
 

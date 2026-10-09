@@ -20,6 +20,7 @@ minreq = { version = "3", features = ["https"] }
 hex = "0.4"
 base64 = "0.22"
 sha2 = "0.10"
+toml = "1.1.6"
 
 [features]
 default = ["python"]

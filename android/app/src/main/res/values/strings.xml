@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">context-switch</string>
     <string name="timer_channel_name">Active timer</string>
+    <string name="sync_unavailable">Sync unavailable — showing cached data</string>
 </resources>

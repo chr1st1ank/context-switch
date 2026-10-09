@@ -1,12 +1,17 @@
 package dev.contextswitch
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -17,6 +22,8 @@ import kotlinx.coroutines.withContext
 class LogbookStore(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val opMutex = Mutex()
+    private var syncJob: Job? = null
     private val cacheFile get() = context.filesDir.resolve("logbook_cache.json")
     private val locationFile get() = context.filesDir.resolve("location.txt")
 
@@ -26,6 +33,8 @@ class LogbookStore(private val context: Context) {
     val error = MutableStateFlow<String?>(null)
     val configured = MutableStateFlow(false)
     val busy = MutableStateFlow(false)
+    /** Message of the last failed automatic sync; cleared by the next successful op. */
+    val syncDegraded = MutableStateFlow<String?>(null)
 
     val hasActiveTimer: Boolean get() = snapshot.value?.activeSpanId != null
 
@@ -55,11 +64,37 @@ class LogbookStore(private val context: Context) {
         }
     }
 
-    fun refresh() = runOp { snapshot() }
+    /**
+     * Fetch canonical state. `quiet` syncs report failures via
+     * [syncDegraded] instead of the modal [error] flow, so unattended
+     * refreshes don't spam dialogs while offline.
+     */
+    fun refresh(quiet: Boolean = false) = runOp(quiet) { snapshot() }
+
+    /** Fetch immediately, then re-fetch on the configured interval. Idempotent. */
+    fun onAppForeground() {
+        refresh(quiet = true)
+        if (syncJob?.isActive == true) return
+        syncJob = scope.launch {
+            while (true) {
+                delay(syncIntervalMs())
+                refresh(quiet = true)
+            }
+        }
+    }
+
+    fun onAppBackground() {
+        syncJob?.cancel()
+        syncJob = null
+    }
+
+    private fun syncIntervalMs(): Long =
+        SettingsStore(context).syncIntervalSecs * 1000L
 
     fun start(projectId: String?, tagIds: List<String>) = runOp { start(projectId, tagIds) }
     fun stop() = runOp { stop() }
     fun switchTo(projectId: String?, tagIds: List<String>) = runOp { `switch`(projectId, tagIds) }
+    fun switchAt(at: String, projectId: String?, tagIds: List<String>) = runOp { switchAt(at, projectId, tagIds) }
     fun cancel() = runOp { cancel() }
     fun addSpan(start: String, stop: String, projectId: String?, tagIds: List<String>) =
         runOp { addSpan(start, stop, projectId, tagIds) }
@@ -67,7 +102,8 @@ class LogbookStore(private val context: Context) {
         runOp { editSpan(spanId, start, stop, tagIds) }
     fun assignProject(spanId: String, projectId: String?) = runOp { assignProject(spanId, projectId) }
     fun removeSpan(spanId: String) = runOp { removeSpan(spanId) }
-    fun addProject(name: String) = runOp { addProject(name) }
+    fun addProject(name: String, client: String? = null) = runOp { addProject(name, client) }
+    fun setProjectClient(id: String, client: String?) = runOp { setProjectClient(id, client) }
     fun renameProject(id: String, name: String) = runOp { renameProject(id, name) }
     fun setProjectArchived(id: String, archived: Boolean) = runOp { setProjectArchived(id, archived) }
     fun addTag(name: String) = runOp { addTag(name) }
@@ -86,18 +122,29 @@ class LogbookStore(private val context: Context) {
         }
     }
 
-    private fun runOp(op: suspend CoswStore.() -> SnapshotRec) {
+    private fun runOp(quiet: Boolean = false, op: suspend CoswStore.() -> SnapshotRec) {
         val s = store ?: return
         scope.launch {
             busy.value = true
             try {
-                val snap = s.op()
-                snapshot.value = snap
+                // Serialize the provider call and the snapshot install:
+                // a refresh whose read started before a mutation's commit
+                // must not overwrite the mutation's fresher result.
+                val snap = opMutex.withLock {
+                    s.op().also { snapshot.value = it }
+                }
+                if (quiet) Log.d(TAG, "synced revision ${snap.version}")
                 error.value = null
+                syncDegraded.value = null
                 cacheFile.writeText(snap.logbookJson)
                 locationFile.writeText(snap.locationUrl)
             } catch (e: MobileException) {
-                error.value = e.message
+                if (quiet) {
+                    syncDegraded.value = e.message
+                    Log.w(TAG, "sync failed", e)
+                } else {
+                    error.value = e.message
+                }
             } finally {
                 busy.value = false
             }
@@ -108,5 +155,9 @@ class LogbookStore(private val context: Context) {
         val json = runCatching { cacheFile.readText() }.getOrNull() ?: return
         val location = runCatching { locationFile.readText() }.getOrDefault("")
         runCatching { snapshot.value = snapshotFromJson(json, location) }
+    }
+
+    private companion object {
+        const val TAG = "LogbookStore"
     }
 }

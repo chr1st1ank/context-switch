@@ -7,6 +7,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -16,6 +19,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -49,6 +54,7 @@ fun App() {
     val nav = rememberNavController()
     val snapshot by store.snapshot.collectAsState()
     val error by store.error.collectAsState()
+    val syncDegraded by store.syncDegraded.collectAsState()
 
     LaunchedEffect(snapshot?.activeSpanId) {
         val active = snapshot?.let { s -> s.activeSpanId?.let { id -> s.spans.firstOrNull { it.id == id } } }
@@ -95,11 +101,24 @@ fun App() {
             },
         ) { padding ->
             Surface(Modifier.padding(padding)) {
-                NavHost(nav, startDestination = "timer") {
-                    composable("timer") { TimerScreen(store) }
-                    composable("log") { LogScreen(store) }
-                    composable("manage") { ManageScreen(store) }
-                    composable("settings") { SettingsScreen(store) }
+                Column {
+                    if (syncDegraded != null) {
+                        Text(
+                            stringResource(R.string.sync_unavailable),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    NavHost(nav, startDestination = "timer") {
+                        composable("timer") { TimerScreen(store) }
+                        composable("log") { LogScreen(store) }
+                        composable("manage") { ManageScreen(store) }
+                        composable("settings") { SettingsScreen(store) }
+                    }
                 }
                 error?.let { msg ->
                     AlertDialog(

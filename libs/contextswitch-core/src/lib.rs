@@ -49,9 +49,11 @@ pub mod blob;
 pub mod conformance;
 pub mod crypto;
 pub mod domain;
+pub mod portable_config;
 pub mod provider;
 pub mod s3;
 pub mod storage;
+pub mod sync;
 
 /// Python exception types raised by the bindings.
 #[cfg(feature = "python")]

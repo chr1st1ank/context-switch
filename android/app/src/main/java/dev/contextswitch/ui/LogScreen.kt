@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -183,76 +185,5 @@ private fun SpanRow(snap: SnapshotRec?, span: SpanRec, modifier: Modifier) {
         supportingContent = { Text("${fmtLocalTime(span.startedAt)} – ${if (end != null) fmtLocalTime(end) else "…"}") },
         trailingContent = { Text(duration) },
         modifier = modifier,
-    )
-}
-
-/** Add or edit a span. Times are entered as local `yyyy-MM-dd HH:mm`. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun EditSpanDialog(
-    snap: SnapshotRec?,
-    span: SpanRec?,
-    onDismiss: () -> Unit,
-    onSave: (startedIso: String?, stoppedIso: String?, projectId: String?, tagIds: List<String>) -> Unit,
-    onDelete: (() -> Unit)?,
-) {
-    fun toLocalInput(s: String?) = s?.let { parseTime(it).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) } ?: ""
-    var start by remember { mutableStateOf(toLocalInput(span?.startedAt)) }
-    var stop by remember { mutableStateOf(toLocalInput(span?.stoppedAt)) }
-    var projectId by remember { mutableStateOf(span?.projectId) }
-    var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
-    val projects = snap?.projects?.filter { !it.archived }.orEmpty()
-    val tags = snap?.tags?.filter { !it.archived }.orEmpty()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (span == null) "Add span" else "Edit span") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = start, onValueChange = { start = it }, label = { Text("Start (yyyy-MM-dd HH:mm)") }, singleLine = true)
-                OutlinedTextField(value = stop, onValueChange = { stop = it }, label = { Text("Stop (yyyy-MM-dd HH:mm)") }, singleLine = true)
-                Text("Project", style = MaterialTheme.typography.labelMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = projectId == null, onClick = { projectId = null }, label = { Text("unassigned") })
-                    projects.forEach { p ->
-                        FilterChip(
-                            selected = projectId == p.id,
-                            onClick = { projectId = p.id },
-                            label = { Text(p.name) },
-                            leadingIcon = { Box(Modifier.size(10.dp).background(projectColor(p.id), RoundedCornerShape(5.dp))) },
-                        )
-                    }
-                }
-                if (tags.isNotEmpty()) {
-                    Text("Tags", style = MaterialTheme.typography.labelMedium)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        tags.forEach { t ->
-                            FilterChip(
-                                selected = t.id in tagIds,
-                                onClick = { tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id },
-                                label = { Text(t.name) },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                fun parse(input: String): String? = runCatching {
-                    java.time.LocalDateTime.parse(input.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toOffsetDateTime()
-                        .let { toIsoUtc(it) }
-                }.getOrNull()
-                onSave(parse(start), parse(stop), projectId, tagIds.toList())
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            Row {
-                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
     )
 }

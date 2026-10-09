@@ -110,6 +110,18 @@ pub trait StorageProvider: Send + Sync {
     /// Conditionally write `logbook` if the stored version still equals
     /// `expected_version`. Returns the new version on success.
     fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError>;
+
+    /// Opaque change token for the stored data, cheap to obtain where the
+    /// backend allows it. Two different tokens imply the stored logbook
+    /// changed; equal tokens imply it did not. Note this token is NOT the
+    /// snapshot version — it is backend-defined (e.g. a blob ETag) and
+    /// must never be compared to it.
+    ///
+    /// The default performs a full `read`; providers override it with a
+    /// cheap probe (HEAD request, file metadata).
+    fn fingerprint(&self) -> Result<String, StorageError> {
+        Ok(self.read()?.version)
+    }
 }
 
 /// Removes the lockfile when the guard goes out of scope.
@@ -189,6 +201,10 @@ impl StorageProvider for LocalFsProvider {
 
     fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
         self.inner.commit(logbook, expected_version)
+    }
+
+    fn fingerprint(&self) -> Result<String, StorageError> {
+        self.inner.fingerprint()
     }
 }
 
@@ -321,5 +337,9 @@ impl StorageProvider for S3Provider {
 
     fn commit(&self, logbook: Logbook, expected_version: &str) -> Result<String, StorageError> {
         self.inner.commit(logbook, expected_version)
+    }
+
+    fn fingerprint(&self) -> Result<String, StorageError> {
+        self.inner.fingerprint()
     }
 }

@@ -33,8 +33,12 @@ _Avoid_: orphaned time, unknown project
 ### Classification
 
 **Project**:
-A named work context to which time can be assigned. Projects have stable identities independent of their display names.
-_Avoid_: workspace, client (unless referring to a platform client)
+A named work context to which time can be assigned. Projects have stable identities independent of their display names and may carry an optional project client label.
+_Avoid_: workspace, account
+
+**Project client**:
+An optional free-form label on a project naming the party the work is done for — stored as the project's `client` field. It is a per-project string, not a first-class entity, and projects without one are normal. Not to be confused with a client in the application sense.
+_Avoid_: customer, account
 
 **Tag**:
 A reusable label that can be attached to a span in addition to its project.
@@ -81,7 +85,7 @@ _Avoid_: merge (unless referring to a future explicit feature)
 ### Clients and reporting
 
 **Client**:
-An application such as the CLI, Android app, or reporting dashboard that uses the storage-provider interface.
+An application such as the CLI, Android app, or reporting dashboard that uses the storage-provider interface. Where ambiguity with a project client arises, say _client app_.
 _Avoid_: frontend (too narrow for the CLI)
 
 **Report**:
