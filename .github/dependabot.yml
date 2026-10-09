@@ -7,7 +7,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      all:
+      python:
         patterns:
           - "*"
     commit-message:
@@ -20,7 +20,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      all:
+      rust:
         patterns:
           - "*"
     commit-message:
@@ -33,7 +33,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      all:
+      android:
         patterns:
           - "*"
     commit-message:
@@ -46,7 +46,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      all:
+      actions:
         patterns:
           - "*"
     commit-message:
