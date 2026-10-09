@@ -3,6 +3,8 @@ package dev.contextswitch.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +19,7 @@ import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TimerScreen(store: LogbookStore) {
     val snap by store.snapshot.collectAsState()
@@ -34,6 +36,7 @@ fun TimerScreen(store: LogbookStore) {
     var projectId by remember { mutableStateOf<String?>(null) }
     var tagIds by remember { mutableStateOf(setOf<String>()) }
     var switchAtOpen by remember { mutableStateOf(false) }
+    var editingActive by remember { mutableStateOf(false) }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
 
@@ -48,9 +51,12 @@ fun TimerScreen(store: LogbookStore) {
                 }
             }
             val projectName = active.projectId?.let { pid -> snap?.projects?.firstOrNull { it.id == pid }?.name } ?: "(unassigned)"
-            Card(Modifier.fillMaxWidth()) {
+            Card(onClick = { editingActive = true }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(projectName, style = MaterialTheme.typography.titleLarge, color = projectColor(active.projectId))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(projectName, style = MaterialTheme.typography.titleLarge, color = projectColor(active.projectId))
+                        Icon(Icons.Filled.Edit, "Edit active span", Modifier.size(18.dp))
+                    }
                     Text(fmtDuration(elapsed), style = MaterialTheme.typography.displaySmall)
                     val tagNames = active.tagIds.mapNotNull { tid -> snap?.tags?.firstOrNull { it.id == tid }?.name }
                     if (tagNames.isNotEmpty()) Text(tagNames.joinToString(" · ", prefix = "+"))
@@ -109,6 +115,22 @@ fun TimerScreen(store: LogbookStore) {
                     OutlinedButton(onClick = { switchAtOpen = true }) { Text("Switch at…") }
                 }
                 TextButton(onClick = { store.cancel() }) { Text("Cancel") }
+            }
+            if (editingActive) {
+                EditSpanDialog(
+                    snap = snap,
+                    span = active,
+                    onDismiss = { editingActive = false },
+                    onSave = { start, stop, pid, tids ->
+                        store.editSpan(active.id, start, stop, tids)
+                        store.assignProject(active.id, pid)
+                        editingActive = false
+                    },
+                    onDelete = {
+                        store.removeSpan(active.id)
+                        editingActive = false
+                    },
+                )
             }
             if (switchAtOpen) {
                 var at by remember { mutableStateOf(LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES)) }
