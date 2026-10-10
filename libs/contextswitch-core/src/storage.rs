@@ -75,7 +75,7 @@ impl From<StorageError> for PyErr {
 
 /// A read of canonical data together with the version it was observed at.
 /// Pass `version` back to [`StorageProvider::commit`] for a conditional write.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(skip_from_py_object))]
 #[derive(Debug, Clone)]
 pub struct StorageSnapshot {
     /// Opaque version string; a logbook revision for local files, an ETag

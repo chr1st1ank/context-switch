@@ -92,7 +92,7 @@ fn parse_uuid_vec(values: Option<Vec<String>>) -> PyResult<Vec<Uuid>> {
 }
 
 /// A named work context to which time can be assigned.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(skip_from_py_object))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     /// Stable identity; never reused.
@@ -177,7 +177,7 @@ impl Project {
 }
 
 /// A reusable label that can be attached to a span.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(skip_from_py_object))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     /// Stable identity; never reused.
@@ -244,7 +244,7 @@ impl Tag {
 }
 
 /// A mutable record of a period during which the user records time.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(skip_from_py_object))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Span {
     /// Stable identity; never reused.
@@ -363,7 +363,7 @@ impl Span {
 /// changes as part of a switch (old span stopped, new one started at the same
 /// instant) or a stop (cleared to `None`). A logbook where it disagrees with
 /// the spans is corrupt; [`Logbook::validate`] detects that.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Logbook {
     pub schema_version: u32,
