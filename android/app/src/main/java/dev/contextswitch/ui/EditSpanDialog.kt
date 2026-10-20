@@ -2,6 +2,8 @@ package dev.contextswitch.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,7 +53,10 @@ internal fun EditSpanDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (span == null) "Add span" else "Edit span") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 DateTimeField(label = "Start", value = start, onChange = { start = it })
                 DateTimeField(
                     label = "Stop",
