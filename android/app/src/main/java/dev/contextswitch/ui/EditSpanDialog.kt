@@ -19,7 +19,13 @@ internal fun EditSpanDialog(
     snap: SnapshotRec?,
     span: SpanRec?,
     onDismiss: () -> Unit,
-    onSave: (startedIso: String?, stoppedIso: String?, projectId: String?, tagIds: List<String>) -> Unit,
+    onSave: (
+        startedIso: String?,
+        stoppedIso: String?,
+        projectId: String?,
+        tagIds: List<String>,
+        description: String,
+    ) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val zone = ZoneId.systemDefault()
@@ -33,6 +39,7 @@ internal fun EditSpanDialog(
     }
     var projectId by remember { mutableStateOf(span?.projectId) }
     var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
+    var description by remember { mutableStateOf(span?.description ?: "") }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
     val stopError = if (stop != null && !isStopAfterStart(start, stop!!)) {
@@ -78,6 +85,14 @@ internal fun EditSpanDialog(
                         }
                     }
                 }
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = clampDescription(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Description") },
+                    supportingText = { Text("${description.length}/$MAX_DESCRIPTION_CHARS") },
+                    maxLines = 4,
+                )
             }
         },
         confirmButton = {
@@ -89,6 +104,7 @@ internal fun EditSpanDialog(
                         if (running) null else stop?.let { resolveIso(span?.stoppedAt, it, zone) },
                         projectId,
                         tagIds.toList(),
+                        description,
                     )
                 },
             ) { Text("Save") }

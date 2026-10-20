@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
 import dev.contextswitch.SnapshotRec
@@ -112,9 +113,15 @@ fun LogScreen(store: LogbookStore) {
             snap = snap,
             span = span,
             onDismiss = { editing = null },
-            onSave = { start, stop, projectId, tagIds ->
-                store.editSpan(span.id, start, stop, tagIds)
-                store.assignProject(span.id, projectId)
+            onSave = { start, stop, projectId, tagIds, description ->
+                store.editSpan(
+                    span.id,
+                    start,
+                    stop,
+                    tagIds,
+                    projectEdit(span.projectId, projectId),
+                    description,
+                )
                 editing = null
             },
             onDelete = {
@@ -128,8 +135,10 @@ fun LogScreen(store: LogbookStore) {
             snap = snap,
             span = null,
             onDismiss = { adding = false },
-            onSave = { start, stop, projectId, tagIds ->
-                if (start != null && stop != null) store.addSpan(start, stop, projectId, tagIds)
+            onSave = { start, stop, projectId, tagIds, description ->
+                if (start != null && stop != null) {
+                    store.addSpan(start, stop, projectId, tagIds, description)
+                }
                 adding = false
             },
             onDelete = null,
@@ -182,7 +191,14 @@ private fun SpanRow(snap: SnapshotRec?, span: SpanRec, modifier: Modifier) {
             )
         },
         headlineContent = { Text("$project${if (tagNames.isNotEmpty()) "  +" + tagNames.joinToString(" +") else ""}") },
-        supportingContent = { Text("${fmtLocalTime(span.startedAt)} – ${if (end != null) fmtLocalTime(end) else "…"}") },
+        supportingContent = {
+            Column {
+                Text("${fmtLocalTime(span.startedAt)} – ${if (end != null) fmtLocalTime(end) else "…"}")
+                span.description?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { firstLine ->
+                    Text(firstLine, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
         trailingContent = { Text(duration) },
         modifier = modifier,
     )

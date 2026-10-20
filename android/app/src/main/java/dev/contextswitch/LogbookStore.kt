@@ -96,11 +96,16 @@ class LogbookStore(private val context: Context) {
     fun switchTo(projectId: String?, tagIds: List<String>) = runOp { `switch`(projectId, tagIds) }
     fun switchAt(at: String, projectId: String?, tagIds: List<String>) = runOp { switchAt(at, projectId, tagIds) }
     fun cancel() = runOp { cancel() }
-    fun addSpan(start: String, stop: String, projectId: String?, tagIds: List<String>) =
-        runOp { addSpan(start, stop, projectId, tagIds) }
-    fun editSpan(spanId: String, start: String?, stop: String?, tagIds: List<String>?) =
-        runOp { editSpan(spanId, start, stop, tagIds) }
-    fun assignProject(spanId: String, projectId: String?) = runOp { assignProject(spanId, projectId) }
+    fun addSpan(start: String, stop: String, projectId: String?, tagIds: List<String>, description: String) =
+        runOp { addSpan(start, stop, projectId, tagIds, description) }
+    fun editSpan(
+        spanId: String,
+        start: String?,
+        stop: String?,
+        tagIds: List<String>?,
+        project: ProjectEdit,
+        description: String?,
+    ) = runOp { editSpan(spanId, start, stop, tagIds, project, description) }
     fun removeSpan(spanId: String) = runOp { removeSpan(spanId) }
     fun addProject(name: String, client: String? = null) = runOp { addProject(name, client) }
     fun setProjectClient(id: String, client: String?) = runOp { setProjectClient(id, client) }
