@@ -77,7 +77,7 @@ class Config:
 
 def default_config_file() -> Path:
     """The default config file under the XDG config home."""
-    xdg = os.environ.get("XDG_CONFIG_HOME")
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
     base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
     return base / "context-switch" / "config.toml"
 

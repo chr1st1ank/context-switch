@@ -35,7 +35,7 @@ _INDEX_RE = re.compile(r"-\d+")
 
 def default_data_file() -> Path:
     """The default canonical data file under the XDG data home."""
-    xdg = os.environ.get("XDG_DATA_HOME")
+    xdg = os.environ.get("XDG_DATA_HOME", "")
     base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
     return base / "context-switch" / "data.json"
 
@@ -61,7 +61,7 @@ def run_passphrase_command(command: str) -> str:
 
 
 def get_passphrase(config: Config) -> str:
-    if config.passphrase_command:
+    if config.passphrase_command is not None:
         return run_passphrase_command(config.passphrase_command)
     return click.prompt("Enter passphrase for storage encryption", hide_input=True)
 

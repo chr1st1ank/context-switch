@@ -107,7 +107,7 @@ def _resolve_all(
 def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None:
     """Start a new timer for PROJECT with optional +TAGs."""
     project_name, tag_names = parse_classification(args)
-    at = parse_dt(at_str) if at_str else utcnow()
+    at = parse_dt(at_str) if at_str is not None else utcnow()
     created: list[str] = []
 
     def mutate(logbook: Logbook) -> str:
@@ -131,7 +131,7 @@ def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None
 @click.pass_context
 def stop(ctx: click.Context, at_str: str | None) -> None:
     """Stop the active timer."""
-    at = parse_dt(at_str) if at_str else utcnow()
+    at = parse_dt(at_str) if at_str is not None else utcnow()
 
     def mutate(logbook: Logbook) -> tuple[str, float]:
         active = logbook.active_span()
@@ -157,7 +157,7 @@ def stop(ctx: click.Context, at_str: str | None) -> None:
 def switch(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None:
     """Stop the active timer and start a new one in one action."""
     project_name, tag_names = parse_classification(args)
-    at = parse_dt(at_str) if at_str else utcnow()
+    at = parse_dt(at_str) if at_str is not None else utcnow()
     created: list[str] = []
 
     def mutate(logbook: Logbook) -> tuple[str | None, str]:
@@ -189,7 +189,7 @@ def resume(ctx: click.Context, ref: str | None, at_str: str | None) -> None:
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
     most recent span.
     """
-    at = parse_dt(at_str) if at_str else utcnow()
+    at = parse_dt(at_str) if at_str is not None else utcnow()
 
     def mutate(logbook: Logbook) -> str:
         if logbook.active_span() is not None:
@@ -282,7 +282,7 @@ def config(ctx: click.Context, show_path: bool) -> None:
     if show_path:
         click.echo(path)
         return
-    if not (os.environ.get("VISUAL") or os.environ.get("EDITOR")):
+    if not (os.environ.get("VISUAL", "") or os.environ.get("EDITOR", "")):
         raise click.ClickException(f"neither $VISUAL nor $EDITOR is set; edit {path} manually")
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -305,12 +305,12 @@ def config(ctx: click.Context, show_path: bool) -> None:
 def decrypt(file: Path, passphrase: str | None, passphrase_command: str | None) -> None:
     """Decrypt a downloaded logbook file to plaintext JSON, for disaster
     recovery without a working cosw installation or config."""
-    if passphrase and passphrase_command:
+    if passphrase is not None and passphrase_command is not None:
         raise click.UsageError("--passphrase and --passphrase-command are mutually exclusive")
 
-    if passphrase_command:
+    if passphrase_command is not None:
         passphrase = run_passphrase_command(passphrase_command)
-    elif not passphrase:
+    elif passphrase is None:
         passphrase = click.prompt("Enter passphrase for decryption", hide_input=True)
 
     try:
