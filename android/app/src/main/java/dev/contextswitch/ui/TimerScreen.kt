@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
 import kotlinx.coroutines.delay
@@ -60,6 +61,14 @@ fun TimerScreen(store: LogbookStore) {
                     Text(fmtDuration(elapsed), style = MaterialTheme.typography.displaySmall)
                     val tagNames = active.tagIds.mapNotNull { tid -> snap?.tags?.firstOrNull { it.id == tid }?.name }
                     if (tagNames.isNotEmpty()) Text(tagNames.joinToString(" · ", prefix = "+"))
+                    active.description?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { firstLine ->
+                        Text(
+                            firstLine,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -121,9 +130,15 @@ fun TimerScreen(store: LogbookStore) {
                     snap = snap,
                     span = active,
                     onDismiss = { editingActive = false },
-                    onSave = { start, stop, pid, tids ->
-                        store.editSpan(active.id, start, stop, tids)
-                        store.assignProject(active.id, pid)
+                    onSave = { start, stop, pid, tids, description ->
+                        store.editSpan(
+                            active.id,
+                            start,
+                            stop,
+                            tids,
+                            projectEdit(active.projectId, pid),
+                            description,
+                        )
                         editingActive = false
                     },
                     onDelete = {

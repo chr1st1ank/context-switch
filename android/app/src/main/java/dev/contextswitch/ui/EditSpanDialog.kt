@@ -2,6 +2,8 @@ package dev.contextswitch.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,7 +21,13 @@ internal fun EditSpanDialog(
     snap: SnapshotRec?,
     span: SpanRec?,
     onDismiss: () -> Unit,
-    onSave: (startedIso: String?, stoppedIso: String?, projectId: String?, tagIds: List<String>) -> Unit,
+    onSave: (
+        startedIso: String?,
+        stoppedIso: String?,
+        projectId: String?,
+        tagIds: List<String>,
+        description: String,
+    ) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val zone = ZoneId.systemDefault()
@@ -33,6 +41,7 @@ internal fun EditSpanDialog(
     }
     var projectId by remember { mutableStateOf(span?.projectId) }
     var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
+    var description by remember { mutableStateOf(span?.description ?: "") }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
     val stopError = if (stop != null && !isStopAfterStart(start, stop!!)) {
@@ -44,7 +53,10 @@ internal fun EditSpanDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (span == null) "Add span" else "Edit span") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 DateTimeField(label = "Start", value = start, onChange = { start = it })
                 DateTimeField(
                     label = "Stop",
@@ -78,6 +90,14 @@ internal fun EditSpanDialog(
                         }
                     }
                 }
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = clampDescription(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Description") },
+                    supportingText = { Text("${description.length}/$MAX_DESCRIPTION_CHARS") },
+                    maxLines = 4,
+                )
             }
         },
         confirmButton = {
@@ -89,6 +109,7 @@ internal fun EditSpanDialog(
                         if (running) null else stop?.let { resolveIso(span?.stoppedAt, it, zone) },
                         projectId,
                         tagIds.toList(),
+                        description,
                     )
                 },
             ) { Text("Save") }
