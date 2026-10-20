@@ -4,7 +4,7 @@ tasks:
   dev:
     desc: Run the CLI in development mode
     cmds:
-      - uv run --package contextswitch cosw --help
+      - uv run --package contextswitch cosw {{default "--help" .CLI_ARGS}}
 
   lint:
     desc: Lint and format CLI code
