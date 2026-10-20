@@ -1,5 +1,8 @@
 """Tests for history commands: add, edit, remove."""
 
+import json
+from typing import Any
+
 
 def _seed(invoke) -> None:
     """Two stopped spans: apollo11+module 08:00-09:30, personal 10:00-11:00."""
@@ -273,3 +276,68 @@ def test_archived_project_rejected_on_start(invoke) -> None:
     result = invoke("start", "apollo11")
     assert result.exit_code == 1
     assert "archived" in result.output
+
+
+def test_add_with_description(invoke) -> None:
+    result = invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-09T08:00:00Z",
+        "--to",
+        "2026-09-09T09:00:00Z",
+        "-d",
+        "notes",
+    )
+    assert result.exit_code == 0
+    assert json.loads(invoke("log", "--json", "--range", "all").output)[0]["description"] == "notes"
+
+
+def test_edit_sets_and_clears_description(invoke) -> None:
+    invoke("start", "apollo11", "--at", "2026-09-09T08:00:00Z")
+    invoke("stop", "--at", "2026-09-09T09:00:00Z")
+
+    def description() -> Any:
+        spans: list[dict[str, Any]] = json.loads(invoke("log", "--json", "--range", "all").output)
+        return spans[0]["description"]
+
+    assert invoke("edit", "-d", "first").exit_code == 0
+    assert description() == "first"
+    invoke("edit", "--start", "2026-09-09T08:05:00Z")
+    assert description() == "first"
+    assert invoke("edit", "-d", "").exit_code == 0
+    assert description() is None
+
+
+def test_edit_description_only_is_a_change(invoke) -> None:
+    invoke("start", "apollo11")
+    assert invoke("edit").exit_code == 2
+    assert invoke("edit", "-d", "x").exit_code == 0
+
+
+def test_log_shows_first_line_truncated(invoke) -> None:
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-09T08:00:00Z",
+        "--to",
+        "2026-09-09T09:00:00Z",
+        "-d",
+        "short\nsecond line",
+    )
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-09T10:00:00Z",
+        "--to",
+        "2026-09-09T11:00:00Z",
+        "-d",
+        "y" * 500,
+    )
+    output = invoke("log", "--range", "all").output
+    assert "short…" in output
+    assert "second line" not in output
+    assert "y" * 500 not in output
+    assert "y…" in output

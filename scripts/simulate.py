@@ -25,6 +25,7 @@ class BlockType:
     min_duration: int
     max_duration: int
     tag_probability: float = 1.0
+    descriptions: tuple[str, ...] = ()
 
 
 # Block type definitions: 50% coding / 25% meetings / 25% orga
@@ -36,6 +37,12 @@ BLOCK_TYPES = [
         45,
         135,
         tag_probability=0.5,
+        descriptions=(
+            "Implement pagination for the list endpoint",
+            "Fix flaky integration test",
+            "Review the open pull requests",
+            "Refactor config loading\n- split parsing from validation\n- add tests",
+        ),
     ),
     BlockType(
         "meetings",
@@ -44,6 +51,7 @@ BLOCK_TYPES = [
         20,
         70,
         tag_probability=1.0,
+        descriptions=("Sprint planning", "Weekly sync with the team", "Retro\nAction items noted"),
     ),
     BlockType(
         "orga",
@@ -52,11 +60,14 @@ BLOCK_TYPES = [
         30,
         90,
         tag_probability=1 / 3,
+        descriptions=("Answer email backlog", "Prepare slides for the demo", "Update the docs"),
     ),
 ]
 
 # Probabilities (normalized to 100) that sum to 50/25/25
 BLOCK_PROBABILITIES = [50, 25, 25]
+
+DESCRIPTION_PROBABILITY = 0.6
 
 # Find cosw on PATH, else use `uv run --package contextswitch cosw`
 COSW_CMD = (
@@ -71,12 +82,20 @@ def ts(day: date, minute: int) -> str:
     return datetime.combine(day, time(minute // 60, minute % 60)).isoformat()
 
 
-def add_span(day: date, project: str | None, start: int, end: int, tag: str | None = None) -> None:
+def add_span(
+    day: date,
+    project: str | None,
+    start: int,
+    end: int,
+    tag: str | None = None,
+    description: str | None = None,
+) -> None:
     """Record a span via cosw add."""
     args = (
         ([project] if project is not None else [])
         + ([f"+{tag}"] if tag is not None else [])
         + ["--from", ts(day, start), "--to", ts(day, end)]
+        + (["--description", description] if description is not None else [])
     )
     subprocess.run(
         [*COSW_CMD, "add", *args],
@@ -132,7 +151,13 @@ def simulate_day(day: date, is_today: bool) -> int:
         if random.random() < block.tag_probability:
             tag = random.choice(block.tags)
 
-        add_span(day, project, cursor, cursor + dur, tag)
+        description = (
+            random.choice(block.descriptions)
+            if block.descriptions and random.random() < DESCRIPTION_PROBABILITY
+            else None
+        )
+
+        add_span(day, project, cursor, cursor + dur, tag, description)
         spans += 1
         cursor += dur
 

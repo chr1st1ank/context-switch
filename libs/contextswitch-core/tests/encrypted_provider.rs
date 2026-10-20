@@ -35,6 +35,49 @@ fn in_memory_encrypted_conformance() {
     });
 }
 
+const V1_LOGBOOK: &str = r#"{"schema_version":1,"revision":4,"active_span_id":null,"projects":{},"tags":{},"spans":{"11111111-1111-1111-1111-111111111111":{"id":"11111111-1111-1111-1111-111111111111","started_at":"2023-11-14T22:13:20Z","stopped_at":"2023-11-14T22:14:20Z","project_id":null,"tag_ids":[],"created_at":"2023-11-14T22:13:20Z","updated_at":"2023-11-14T22:14:20Z"}}}"#;
+
+fn encrypted_provider_with(plaintext: &str) -> GenericProvider {
+    let blob_store = Arc::new(InMemoryBlobStore::new());
+    let cipher = Arc::new(EnvelopeCipher::with_work_factor(10));
+    let sealed = cipher.seal(plaintext.as_bytes(), "pass").unwrap();
+    blob_store
+        .put(&sealed, contextswitch_core::blob::Precondition::IfAbsent)
+        .unwrap();
+    GenericProvider::new(blob_store, cipher, Some("pass".to_string()))
+}
+
+#[test]
+fn encrypted_v1_logbook_is_migrated_on_read_and_written_as_v2() {
+    let provider = encrypted_provider_with(V1_LOGBOOK);
+    let snap = provider.read().unwrap();
+    assert_eq!(snap.version, "4");
+    assert_eq!(snap.logbook.schema_version, 2);
+    assert_eq!(snap.logbook.spans.len(), 1);
+
+    let mut logbook = snap.logbook.clone();
+    let id = *logbook.spans.keys().next().unwrap();
+    logbook
+        .set_span_description(id, Some("migrated".to_string()), at(0))
+        .unwrap();
+    provider.commit(logbook, &snap.version).unwrap();
+
+    let reread = provider.read().unwrap();
+    assert_eq!(reread.logbook.schema_version, 2);
+    assert_eq!(
+        reread.logbook.spans[&id].description.as_deref(),
+        Some("migrated")
+    );
+}
+
+#[test]
+fn logbook_from_a_newer_schema_is_rejected() {
+    let provider = encrypted_provider_with(
+        &V1_LOGBOOK.replace("\"schema_version\":1", "\"schema_version\":3"),
+    );
+    assert!(matches!(provider.read(), Err(StorageError::Corrupt(_))));
+}
+
 #[test]
 fn wrong_passphrase_fails_decryption() {
     let blob_store = Arc::new(InMemoryBlobStore::new());

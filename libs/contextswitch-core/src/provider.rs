@@ -125,6 +125,9 @@ impl StorageProvider for GenericProvider {
         let logbook: Logbook =
             serde_json::from_str(json_str).map_err(|e| StorageError::Corrupt(e.to_string()))?;
 
+        let logbook = logbook
+            .migrate()
+            .map_err(|e| StorageError::Corrupt(e.to_string()))?;
         logbook
             .validate()
             .map_err(|e| StorageError::Corrupt(e.to_string()))?;

@@ -26,6 +26,10 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@v3
+        with:
+          # Authenticate the release lookup; unauthenticated calls share a
+          # 60 req/h rate limit per runner IP and intermittently fail.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
