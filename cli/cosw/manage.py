@@ -9,6 +9,7 @@ from typing import Any, Literal
 import click
 from contextswitch_core import Logbook, Project, Tag
 
+from cosw import completers
 from cosw.cli import main
 from cosw.core import read_logbook, require_project, require_tag, transact
 from cosw.timeparse import utcnow
@@ -89,7 +90,7 @@ def _register(group: click.Group, kind: Kind) -> None:
     group.command("add")(command)
 
     @group.command("rename")
-    @click.argument("old")
+    @click.argument("old", shell_complete=completers.names(kind))
     @click.argument("new")
     @click.pass_context
     def rename_cmd(ctx: click.Context, old: str, new: str) -> None:
@@ -103,7 +104,7 @@ def _register(group: click.Group, kind: Kind) -> None:
         click.echo(f"renamed {kind} {old} to {new}")
 
     @group.command("archive")
-    @click.argument("name")
+    @click.argument("name", shell_complete=completers.names(kind))
     @click.pass_context
     def archive_cmd(ctx: click.Context, name: str) -> None:
         """Hide an entry from pickers while preserving its history."""
@@ -116,7 +117,7 @@ def _register(group: click.Group, kind: Kind) -> None:
         click.echo(f"archived {kind} {name}")
 
     @group.command("unarchive")
-    @click.argument("name")
+    @click.argument("name", shell_complete=completers.names(kind, archived=True))
     @click.pass_context
     def unarchive_cmd(ctx: click.Context, name: str) -> None:
         """Make an archived entry selectable again."""
@@ -154,7 +155,7 @@ _register(tags, "tag")
 
 
 @projects.command("client")
-@click.argument("name")
+@click.argument("name", shell_complete=completers.names("project"))
 @click.argument("value", required=False, metavar="CLIENT")
 @click.option("--clear", is_flag=True, help="Remove the client label.")
 @click.pass_context

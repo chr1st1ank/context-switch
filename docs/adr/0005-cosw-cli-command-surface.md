@@ -54,7 +54,8 @@ cosw [--data-file PATH] COMMAND ...
 ├── log    [filters] [-r] [-c|-C] [-j]
 ├── report [filters] [--by project|tag|client|day] [-c|-C] [-j]
 ├── projects [--all] [-j] | projects add [--client C]|rename|client|archive|unarchive
-└── tags     [--all] [-j] | tags     add|rename|archive|unarchive
+├── tags     [--all] [-j] | tags     add|rename|archive|unarchive
+└── completion bash|zsh|fish         # print the shell completion script
 ```
 
 ### Interaction rules

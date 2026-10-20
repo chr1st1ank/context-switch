@@ -102,6 +102,24 @@ uv run cosw switch "Another Project"
 See [A day with context-switch](#a-day-with-context-switch) above for a
 fuller tour of `status`, `resume`, `log`, and `report`.
 
+### Shell completion
+
+`cosw completion SHELL` prints a completion script for bash, zsh or fish. It
+registers both the `cosw` and `contextswitch` commands.
+
+```bash
+cosw completion bash > ~/.local/share/bash-completion/completions/cosw
+cosw completion zsh > ~/.zfunc/_cosw      # ~/.zfunc must be on $fpath
+cosw completion fish > ~/.config/fish/completions/cosw.fish
+```
+
+Subcommands and options always complete. Project and tag names (`start`,
+`switch`, `add`, `edit`, `log`, `report`, `projects`, `tags`) complete from a
+local cache that every command refreshes, so completion never touches storage,
+the network or your passphrase. The cache lives under
+`$XDG_CACHE_HOME/context-switch/` (one `0600` file per storage location) and
+holds the names **unencrypted**, even if the logbook itself is encrypted.
+
 ### Running tests
 
 ```bash
