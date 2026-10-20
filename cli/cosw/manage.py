@@ -67,7 +67,7 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
         return
     for item in items:
         notes = []
-        if isinstance(item, Project) and item.client:
+        if isinstance(item, Project) and item.client is not None:
             notes.append(item.client)
         if item.archived:
             notes.append("archived")

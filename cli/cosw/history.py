@@ -139,8 +139,8 @@ def edit(
         raise click.UsageError("--project and --unassign are mutually exclusive")
     if not any([start_str, stop_str, project_name, unassign, adds, untags]):
         raise click.UsageError("nothing to change")
-    started = parse_dt(start_str) if start_str else None
-    stopped = parse_dt(stop_str) if stop_str else None
+    started = parse_dt(start_str) if start_str is not None else None
+    stopped = parse_dt(stop_str) if stop_str is not None else None
     now = utcnow()
     created: list[str] = []
 

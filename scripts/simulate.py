@@ -59,7 +59,11 @@ BLOCK_TYPES = [
 BLOCK_PROBABILITIES = [50, 25, 25]
 
 # Find cosw on PATH, else use `uv run --package contextswitch cosw`
-COSW_CMD = ["cosw"] if shutil.which("cosw") else ["uv", "run", "--package", "contextswitch", "cosw"]
+COSW_CMD = (
+    ["cosw"]
+    if shutil.which("cosw") is not None
+    else ["uv", "run", "--package", "contextswitch", "cosw"]
+)
 
 
 def ts(day: date, minute: int) -> str:
@@ -70,8 +74,8 @@ def ts(day: date, minute: int) -> str:
 def add_span(day: date, project: str | None, start: int, end: int, tag: str | None = None) -> None:
     """Record a span via cosw add."""
     args = (
-        ([project] if project else [])
-        + ([f"+{tag}"] if tag else [])
+        ([project] if project is not None else [])
+        + ([f"+{tag}"] if tag is not None else [])
         + ["--from", ts(day, start), "--to", ts(day, end)]
     )
     subprocess.run(

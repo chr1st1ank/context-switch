@@ -31,7 +31,7 @@ def storage_key(config: Config, data_file: Path) -> str:
 
 
 def cache_file(key: str) -> Path:
-    xdg = os.environ.get("XDG_CACHE_HOME")
+    xdg = os.environ.get("XDG_CACHE_HOME", "")
     base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
     digest = hashlib.sha256(key.encode()).hexdigest()[:16]
     return base / "context-switch" / f"names-{digest}.json"
