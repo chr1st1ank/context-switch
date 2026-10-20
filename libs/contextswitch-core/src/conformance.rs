@@ -50,7 +50,10 @@ where
     let snapshot = provider.read().unwrap();
     let mut logbook = snapshot.logbook.clone();
     let project = logbook.add_project("work", None, at(0)).unwrap();
-    logbook.start_timer(at(10), Some(project), vec![]).unwrap();
+    let span = logbook.start_timer(at(10), Some(project), vec![]).unwrap();
+    logbook
+        .set_span_description(span, Some("multi\nline".to_string()), at(10))
+        .unwrap();
 
     let version = provider.commit(logbook, &snapshot.version).unwrap();
     assert_eq!(version, "1", "first commit must produce version 1");
@@ -59,6 +62,11 @@ where
     assert_eq!(reread.version, "1");
     assert_eq!(reread.logbook.spans.len(), 1);
     assert!(reread.logbook.active_span_id.is_some());
+    assert_eq!(
+        reread.logbook.spans[&span].description.as_deref(),
+        Some("multi\nline"),
+        "span descriptions must survive a commit/read round trip"
+    );
 }
 
 fn stale_commit_is_a_conflict<F>(make_provider: &mut F)

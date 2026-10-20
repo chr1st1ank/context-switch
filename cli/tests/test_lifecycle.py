@@ -1,6 +1,7 @@
 """Tests for timer lifecycle: start, stop, switch, resume, cancel, status."""
 
 import json
+from typing import Any
 
 
 def test_start_creates_project_and_tags(invoke, data_file) -> None:
@@ -175,3 +176,68 @@ def test_status_json_active(invoke) -> None:
     assert payload["project"] == "apollo11"
     assert payload["tags"] == ["module"]
     assert payload["stopped_at"] is None
+
+
+def _spans(invoke) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = json.loads(invoke("log", "--json", "--range", "all").output)
+    return spans
+
+
+def test_start_with_description(invoke) -> None:
+    invoke("start", "apollo11", "-d", "  wire up\nthe brakes ")
+    (span,) = _spans(invoke)
+    assert span["description"] == "wire up\nthe brakes"
+
+
+def test_start_without_description_is_null(invoke) -> None:
+    invoke("start", "apollo11")
+    assert _spans(invoke)[0]["description"] is None
+
+
+def test_description_too_long_is_rejected_and_nothing_written(invoke) -> None:
+    result = invoke("start", "apollo11", "-d", "x" * 1001)
+    assert result.exit_code == 1
+    assert "too long" in result.output
+    assert _spans(invoke) == []
+
+
+def test_stop_description_overwrites(invoke) -> None:
+    invoke("start", "apollo11", "--at", "2026-09-10T08:00:00Z", "-d", "x")
+    result = invoke("stop", "--at", "2026-09-10T09:00:00Z", "-d", "y")
+    assert result.exit_code == 0
+    assert _spans(invoke)[0]["description"] == "y"
+
+
+def test_stop_without_description_keeps_existing(invoke) -> None:
+    invoke("start", "apollo11", "--at", "2026-09-10T08:00:00Z", "-d", "x")
+    invoke("stop", "--at", "2026-09-10T09:00:00Z")
+    assert _spans(invoke)[0]["description"] == "x"
+
+
+def test_switch_starts_empty_unless_described(invoke) -> None:
+    invoke("start", "a", "--at", "2026-09-10T08:00:00Z", "-d", "first")
+    invoke("switch", "b", "--at", "2026-09-10T09:00:00Z")
+    invoke("switch", "c", "--at", "2026-09-10T10:00:00Z", "-d", "third")
+    by_project = {s["project"]: s["description"] for s in _spans(invoke)}
+    assert by_project == {"a": "first", "b": None, "c": "third"}
+
+
+def test_resume_copies_description(invoke) -> None:
+    invoke("start", "a", "--at", "2026-09-10T08:00:00Z", "-d", "first")
+    invoke("stop", "--at", "2026-09-10T09:00:00Z")
+    invoke("resume", "--at", "2026-09-10T10:00:00Z")
+    descriptions = [s["description"] for s in _spans(invoke)]
+    assert descriptions == ["first", "first"]
+
+
+def test_resume_with_description_overrides_copy(invoke) -> None:
+    invoke("start", "a", "--at", "2026-09-10T08:00:00Z", "-d", "first")
+    invoke("stop", "--at", "2026-09-10T09:00:00Z")
+    invoke("resume", "--at", "2026-09-10T10:00:00Z", "-d", "second")
+    descriptions = [s["description"] for s in _spans(invoke)]
+    assert descriptions == ["second", "first"]
+
+
+def test_status_json_includes_description(invoke) -> None:
+    invoke("start", "a", "-d", "hello")
+    assert json.loads(invoke("status", "--json").output)["description"] == "hello"

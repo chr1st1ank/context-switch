@@ -74,6 +74,7 @@ pub struct SpanRec {
     pub stopped_at: Option<String>,
     pub project_id: Option<String>,
     pub tag_ids: Vec<String>,
+    pub description: Option<String>,
     pub is_active: bool,
 }
 
@@ -231,6 +232,7 @@ fn snapshot_rec(
             stopped_at: s.stopped_at.map(|t| t.to_rfc3339()),
             project_id: s.project_id.map(|id| id.to_string()),
             tag_ids: s.tag_ids.iter().map(Uuid::to_string).collect(),
+            description: s.description.clone(),
             is_active: s.is_active(),
         })
         .collect();

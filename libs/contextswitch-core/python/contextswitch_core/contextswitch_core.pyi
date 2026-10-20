@@ -39,6 +39,7 @@ class Span:
     stopped_at: datetime | None
     project_id: str | None
     tag_ids: list[str]
+    description: str | None
     created_at: datetime
     updated_at: datetime
     is_active: bool
@@ -117,6 +118,12 @@ class Logbook:
         """
     def remove_span(self, span_id: str) -> None:
         """Delete a span. Removing the active span discards the running timer."""
+    def set_span_description(self, span_id: str, description: str | None, at: datetime) -> None:
+        """Set or clear (``None``) a span's description.
+
+        The text is trimmed and blank becomes ``None``; more than 1000
+        characters raises DomainError.
+        """
     def unassign_span(self, span_id: str, at: datetime) -> None:
         """Clear a span's project assignment."""
     def add_project(self, name: str, at: datetime, client: str | None = None) -> str:
@@ -133,7 +140,8 @@ class Logbook:
         """Serialize to the canonical pretty-printed JSON representation."""
     @staticmethod
     def from_json(json: str) -> Logbook:
-        """Parse a logbook from its canonical JSON representation."""
+        """Parse a logbook from its canonical JSON representation, upgrading
+        older schema versions."""
 
 class StorageSnapshot:
     """A read of canonical data plus the version it was observed at."""
@@ -146,7 +154,7 @@ class LocalFsProvider:
 
     Commits serialize through a ``<file>.lock`` lockfile and write via
     temp-file + atomic rename. Created with the logbook's file path;
-    an empty v1 logbook is created if none exists.
+    an empty logbook is created if none exists.
     """
 
     path: str

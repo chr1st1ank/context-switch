@@ -22,9 +22,11 @@ from cosw.config import (
 )
 from cosw.core import (
     ENV_DATA_FILE,
+    apply_description,
     config_info,
     default_data_file,
     describe,
+    description_option,
     echo_created,
     parse_classification,
     parse_dt,
@@ -103,8 +105,11 @@ def _resolve_all(
     "args", nargs=-1, metavar="PROJECT [+TAG ...]", shell_complete=completers.classification
 )
 @click.option("--at", "at_str", metavar="WHEN", help="Start time (ISO 8601 or HH:MM); default now.")
+@description_option("Describe what you are working on.")
 @click.pass_context
-def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None:
+def start(
+    ctx: click.Context, args: tuple[str, ...], at_str: str | None, span_description: str | None
+) -> None:
     """Start a new timer for PROJECT with optional +TAGs."""
     project_name, tag_names = parse_classification(args)
     at = parse_dt(at_str) if at_str is not None else utcnow()
@@ -119,6 +124,7 @@ def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None
         logbook.start_timer(at, project_id, tag_ids)
         active = logbook.active_span()
         assert active is not None
+        apply_description(logbook, active.id, span_description, at)
         return describe(logbook, active)
 
     description = transact(ctx, mutate)
@@ -128,8 +134,9 @@ def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None
 
 @main.command()
 @click.option("--at", "at_str", metavar="WHEN", help="Stop time (ISO 8601 or HH:MM); default now.")
+@description_option("Set the description, replacing any existing one.")
 @click.pass_context
-def stop(ctx: click.Context, at_str: str | None) -> None:
+def stop(ctx: click.Context, at_str: str | None, span_description: str | None) -> None:
     """Stop the active timer."""
     at = parse_dt(at_str) if at_str is not None else utcnow()
 
@@ -139,6 +146,7 @@ def stop(ctx: click.Context, at_str: str | None) -> None:
             raise click.ClickException("no active timer")
         description = describe(logbook, active)
         seconds = (at - active.started_at).total_seconds()
+        apply_description(logbook, active.id, span_description, at)
         logbook.stop_timer(at)
         return description, seconds
 
@@ -153,8 +161,11 @@ def stop(ctx: click.Context, at_str: str | None) -> None:
 @click.option(
     "--at", "at_str", metavar="WHEN", help="Switch time (ISO 8601 or HH:MM); default now."
 )
+@description_option("Describe what you are switching to.")
 @click.pass_context
-def switch(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None:
+def switch(
+    ctx: click.Context, args: tuple[str, ...], at_str: str | None, span_description: str | None
+) -> None:
     """Stop the active timer and start a new one in one action."""
     project_name, tag_names = parse_classification(args)
     at = parse_dt(at_str) if at_str is not None else utcnow()
@@ -167,6 +178,7 @@ def switch(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> Non
         logbook.switch(at, project_id, tag_ids)
         active = logbook.active_span()
         assert active is not None
+        apply_description(logbook, active.id, span_description, at)
         return previous_desc, describe(logbook, active)
 
     previous_desc, description = transact(ctx, mutate)
@@ -182,12 +194,15 @@ def switch(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> Non
 @click.option(
     "--at", "at_str", metavar="WHEN", help="Resume time (ISO 8601 or HH:MM); default now."
 )
+@description_option("Describe the resumed span instead of copying the previous description.")
 @click.pass_context
-def resume(ctx: click.Context, ref: str | None, at_str: str | None) -> None:
+def resume(
+    ctx: click.Context, ref: str | None, at_str: str | None, span_description: str | None
+) -> None:
     """Start a copy of a previous span, typically after a break.
 
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
-    most recent span.
+    most recent span. Project, tags and description are copied.
     """
     at = parse_dt(at_str) if at_str is not None else utcnow()
 
@@ -202,6 +217,8 @@ def resume(ctx: click.Context, ref: str | None, at_str: str | None) -> None:
         logbook.start_timer(at, source.project_id, source.tag_ids)
         active = logbook.active_span()
         assert active is not None
+        text = span_description if span_description is not None else source.description
+        apply_description(logbook, active.id, text, at)
         return describe(logbook, active)
 
     description = transact(ctx, mutate)

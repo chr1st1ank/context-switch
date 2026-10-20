@@ -10,6 +10,10 @@ The domain of the context-switch single-user, multi-device time-tracking system 
 A mutable record of a period during which the user records time. It has a start time, an optional stop time while active, an optional project, and zero or more tags. Spans are half-open intervals that never overlap — time must not be double-recorded — though touching boundaries are allowed.
 _Avoid_: time entry, frame, session, booking (unless referring to an external system)
 
+**Description**:
+An optional free-text note on a single span saying what was done during it. It belongs to the span, not to the project or tags. A resume copies it from the previous span; a switch or start begins without one unless the user supplies it.
+_Avoid_: note, comment, title
+
 **Active timer**:
 The one span whose stop time has not been recorded. The system permits at most one active timer for the user across all clients.
 _Avoid_: current frame, running session
@@ -19,7 +23,7 @@ The operation that stops the active timer and starts a new timer in one logical 
 _Avoid_: restart (when describing the new system)
 
 **Resume**:
-The operation that starts a new timer copying the project and tags of a previous span, typically after a break. It requires that no timer is active; changing tasks while recording is a switch.
+The operation that starts a new timer copying the project, tags and description of a previous span, typically after a break. It requires that no timer is active; changing tasks while recording is a switch.
 _Avoid_: restart
 
 **Cancel**:

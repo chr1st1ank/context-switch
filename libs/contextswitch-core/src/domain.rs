@@ -19,8 +19,12 @@ use uuid::Uuid;
 #[cfg(feature = "python")]
 use crate::exceptions;
 
-/// The only schema version this library reads and writes.
-pub const SCHEMA_VERSION: u32 = 1;
+/// The only schema version this library writes. Older logbooks are upgraded
+/// on read by [`Logbook::migrate`]; see ADR-0013.
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Longest span description, counted in Unicode scalar values.
+pub const MAX_DESCRIPTION_CHARS: usize = 1000;
 
 /// Errors produced by domain mutations and logbook validation.
 #[derive(Debug, Error)]
@@ -62,6 +66,9 @@ pub enum DomainError {
     /// The logbook's schema version is not supported by this library.
     #[error("unsupported schema version: {0}")]
     UnsupportedSchemaVersion(u32),
+    /// A span description exceeds [`MAX_DESCRIPTION_CHARS`].
+    #[error("description is too long (maximum {MAX_DESCRIPTION_CHARS} characters)")]
+    DescriptionTooLong,
 }
 
 #[cfg(feature = "python")]
@@ -254,8 +261,24 @@ pub struct Span {
     /// Assigned project; `None` is unassigned time awaiting classification.
     pub project_id: Option<Uuid>,
     pub tag_ids: Vec<Uuid>,
+    /// Optional free-text note on what was done; never blank when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Trim a description; blank or whitespace-only becomes `None`.
+fn normalize_description(description: Option<String>) -> Result<Option<String>, DomainError> {
+    let description = description
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty());
+    match description {
+        Some(d) if d.chars().count() > MAX_DESCRIPTION_CHARS => {
+            Err(DomainError::DescriptionTooLong)
+        }
+        other => Ok(other),
+    }
 }
 
 impl Span {
@@ -266,6 +289,7 @@ impl Span {
             stopped_at: None,
             project_id,
             tag_ids,
+            description: None,
             created_at: at,
             updated_at: at,
         }
@@ -319,6 +343,11 @@ impl Span {
     #[getter]
     fn tag_ids(&self) -> Vec<String> {
         self.tag_ids.iter().map(Uuid::to_string).collect()
+    }
+
+    #[getter]
+    fn description(&self) -> Option<String> {
+        self.description.clone()
     }
 
     #[getter(is_active)]
@@ -396,6 +425,20 @@ impl Logbook {
     /// The span currently recording time, if any.
     pub fn active_span(&self) -> Option<&Span> {
         self.active_span_id.and_then(|id| self.spans.get(&id))
+    }
+
+    /// Upgrade a logbook read from storage to [`SCHEMA_VERSION`].
+    ///
+    /// Pure and one-way: v1 logbooks (no span descriptions) carry over
+    /// unchanged apart from the version stamp; anything newer than this
+    /// library understands is rejected rather than silently rewritten.
+    pub fn migrate(mut self) -> Result<Self, DomainError> {
+        match self.schema_version {
+            1 => self.schema_version = 2,
+            SCHEMA_VERSION => {}
+            other => return Err(DomainError::UnsupportedSchemaVersion(other)),
+        }
+        Ok(self)
     }
 
     /// Check every domain invariant. Providers run this on read and before
@@ -687,6 +730,24 @@ impl Logbook {
         Ok(())
     }
 
+    /// Set or clear (`None`) a span's description. The text is trimmed and
+    /// blank becomes `None`; over [`MAX_DESCRIPTION_CHARS`] is rejected.
+    pub fn set_span_description(
+        &mut self,
+        span_id: Uuid,
+        description: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let description = normalize_description(description)?;
+        let span = self
+            .spans
+            .get_mut(&span_id)
+            .ok_or(DomainError::SpanNotFound(span_id))?;
+        span.description = description;
+        span.updated_at = at;
+        Ok(())
+    }
+
     /// Clear a span's project assignment. The time stays visible as
     /// unassigned for later classification.
     pub fn unassign_span(&mut self, span_id: Uuid, at: DateTime<Utc>) -> Result<(), DomainError> {
@@ -956,6 +1017,16 @@ impl Logbook {
         Ok(self.remove_span(parse_uuid(&span_id)?)?)
     }
 
+    #[pyo3(name = "set_span_description", signature = (span_id, description, at))]
+    fn py_set_span_description(
+        &mut self,
+        span_id: String,
+        description: Option<String>,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.set_span_description(parse_uuid(&span_id)?, description, at)?)
+    }
+
     #[pyo3(name = "unassign_span")]
     fn py_unassign_span(&mut self, span_id: String, at: DateTime<Utc>) -> PyResult<()> {
         Ok(self.unassign_span(parse_uuid(&span_id)?, at)?)
@@ -1029,7 +1100,9 @@ impl Logbook {
     /// Parse a logbook from its canonical JSON representation.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
-        serde_json::from_str(json).map_err(|e| PyValueError::new_err(e.to_string()))
+        let logbook: Self =
+            serde_json::from_str(json).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(logbook.migrate()?)
     }
 
     fn __repr__(&self) -> String {
@@ -1452,7 +1525,7 @@ mod tests {
     #[test]
     fn project_without_client_key_deserializes() {
         // Logbooks written before the client field existed carry no key;
-        // the additive field keeps schema version 1 readable.
+        // the additive field keeps old logbooks readable after migration.
         let json = r#"{
             "schema_version": 1,
             "revision": 0,
@@ -1467,7 +1540,10 @@ mod tests {
             "tags": {},
             "spans": {}
         }"#;
-        let logbook: Logbook = serde_json::from_str(json).unwrap();
+        let logbook: Logbook = serde_json::from_str::<Logbook>(json)
+            .unwrap()
+            .migrate()
+            .unwrap();
         let project = logbook.projects.values().next().unwrap();
         assert_eq!(project.client, None);
         logbook.validate().unwrap();
@@ -1548,7 +1624,93 @@ mod tests {
         let json = serde_json::to_string(&logbook).unwrap();
         let parsed: Logbook = serde_json::from_str(&json).unwrap();
         assert_eq!(logbook, parsed);
-        assert!(json.contains("\"schema_version\":1"));
+        assert!(json.contains("\"schema_version\":2"));
         assert!(json.contains("\"active_span_id\""));
+    }
+
+    #[test]
+    fn set_span_description_trims_and_clears() {
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        assert_eq!(logbook.spans[&id].description, None);
+        logbook
+            .set_span_description(id, Some("  wrote tests\nand code ".to_string()), at(10))
+            .unwrap();
+        assert_eq!(
+            logbook.spans[&id].description.as_deref(),
+            Some("wrote tests\nand code")
+        );
+        assert_eq!(logbook.spans[&id].updated_at, at(10));
+        for blank in [Some(String::new()), Some("  \n ".to_string()), None] {
+            logbook
+                .set_span_description(id, Some("x".to_string()), at(11))
+                .unwrap();
+            logbook.set_span_description(id, blank, at(12)).unwrap();
+            assert_eq!(logbook.spans[&id].description, None);
+        }
+        assert!(matches!(
+            logbook.set_span_description(Uuid::new_v4(), None, at(12)),
+            Err(DomainError::SpanNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn set_span_description_enforces_length_cap_in_characters() {
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        let max = "é".repeat(MAX_DESCRIPTION_CHARS);
+        logbook
+            .set_span_description(id, Some(max.clone()), at(1))
+            .unwrap();
+        assert_eq!(logbook.spans[&id].description, Some(max));
+        assert!(matches!(
+            logbook.set_span_description(id, Some("é".repeat(MAX_DESCRIPTION_CHARS + 1)), at(2)),
+            Err(DomainError::DescriptionTooLong)
+        ));
+    }
+
+    #[test]
+    fn description_roundtrips_and_is_omitted_when_absent() {
+        let mut logbook = Logbook::new();
+        let with = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.stop_timer(at(10)).unwrap();
+        let without = logbook.start_timer(at(20), None, vec![]).unwrap();
+        logbook
+            .set_span_description(with, Some("notes".to_string()), at(10))
+            .unwrap();
+        let json = serde_json::to_string(&logbook).unwrap();
+        assert_eq!(json.matches("\"description\"").count(), 1);
+        let parsed: Logbook = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.spans[&with].description.as_deref(), Some("notes"));
+        assert_eq!(parsed.spans[&without].description, None);
+    }
+
+    #[test]
+    fn migrate_upgrades_v1_and_keeps_data() {
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.schema_version = 1;
+        assert!(matches!(
+            logbook.validate(),
+            Err(DomainError::UnsupportedSchemaVersion(1))
+        ));
+        let migrated = logbook.clone().migrate().unwrap();
+        assert_eq!(migrated.schema_version, SCHEMA_VERSION);
+        assert_eq!(migrated.spans, logbook.spans);
+        assert_eq!(migrated.active_span_id, Some(id));
+        migrated.validate().unwrap();
+        assert_eq!(migrated.clone().migrate().unwrap(), migrated);
+    }
+
+    #[test]
+    fn migrate_rejects_unknown_versions() {
+        for version in [0, 3, 99] {
+            let mut logbook = Logbook::new();
+            logbook.schema_version = version;
+            assert!(matches!(
+                logbook.migrate(),
+                Err(DomainError::UnsupportedSchemaVersion(v)) if v == version
+            ));
+        }
     }
 }

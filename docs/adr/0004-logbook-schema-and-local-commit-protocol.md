@@ -35,7 +35,7 @@ compare-and-write without a server.
 
 ## Decision Outcome
 
-### Logbook schema (version 1)
+### Logbook schema (version 1; version 2 adds `spans[].description`, see ADR-0013)
 
 ```json
 {

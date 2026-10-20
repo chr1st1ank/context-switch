@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
@@ -13,9 +14,12 @@ from contextswitch_core import Logbook, Span
 from cosw import completers
 from cosw.cli import main
 from cosw.core import (
+    apply_description,
     client_name,
     describe,
+    description_option,
     echo_created,
+    first_line,
     parse_classification,
     parse_dt,
     project_name,
@@ -54,8 +58,15 @@ _F = TypeVar("_F", bound=Callable[..., Any])
     metavar="WHEN",
     help="Span end time; a bare date means the end of that day.",
 )
+@description_option("Describe what was done.")
 @click.pass_context
-def add(ctx: click.Context, args: tuple[str, ...], from_str: str, to_str: str) -> None:
+def add(
+    ctx: click.Context,
+    args: tuple[str, ...],
+    from_str: str,
+    to_str: str,
+    span_description: str | None,
+) -> None:
     """Record a span that was not tracked live."""
     project_name, tag_names = parse_classification(args)
     started = parse_dt(from_str)
@@ -70,6 +81,7 @@ def add(ctx: click.Context, args: tuple[str, ...], from_str: str, to_str: str) -
         project_id = resolve_project_id(logbook, project_name, now, created)
         tag_ids = resolve_tag_ids(logbook, tag_names, now, created)
         span_id = logbook.add_span(started, stopped, project_id, tag_ids, now)
+        apply_description(logbook, span_id, span_description, now)
         span = logbook.span(span_id)
         assert span is not None
         return describe(logbook, span)
@@ -119,6 +131,7 @@ def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
     help="Remove a tag.",
     shell_complete=completers.names("tag"),
 )
+@description_option("Set the description; an empty value clears it.")
 @click.pass_context
 def edit(
     ctx: click.Context,
@@ -128,8 +141,9 @@ def edit(
     project_name: str | None,
     unassign: bool,
     untags: tuple[str, ...],
+    span_description: str | None,
 ) -> None:
-    """Edit a span's times, project, or tags.
+    """Edit a span's times, project, tags, or description.
 
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
     active span, or the most recent span when idle.
@@ -137,7 +151,9 @@ def edit(
     ref, adds = _parse_edit_args(args)
     if project_name is not None and unassign:
         raise click.UsageError("--project and --unassign are mutually exclusive")
-    if not any([start_str, stop_str, project_name, unassign, adds, untags]):
+    if not any([start_str, stop_str, project_name, unassign, adds, untags]) and (
+        span_description is None
+    ):
         raise click.UsageError("nothing to change")
     started = parse_dt(start_str) if start_str is not None else None
     stopped = parse_dt(stop_str) if stop_str is not None else None
@@ -172,6 +188,7 @@ def edit(
             project_id=project_id,
             tag_ids=tag_ids,
         )
+        apply_description(logbook, span.id, span_description, now)
         updated = logbook.span(span.id)
         assert updated is not None
         return describe(logbook, updated)
@@ -367,10 +384,14 @@ def log(
     for span, lo, hi in rows:
         end = "now" if span.is_active else fmt_time(hi)
         seconds = (hi - lo).total_seconds()
-        click.echo(
+        line = (
             f"{span.id[:8]}  {fmt_local(lo)} – {end:<16}  "
             f"{describe(logbook, span)}  {fmt_duration(seconds)}"
         )
+        if span.description is not None:
+            room = shutil.get_terminal_size().columns - len(line) - 2
+            line += f"  {first_line(span.description, max(room, 20))}"
+        click.echo(line)
 
 
 def _totals_by_project(logbook: Logbook):

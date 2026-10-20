@@ -29,6 +29,7 @@ from cosw.timeparse import parse_datetime
 ENV_DATA_FILE = "COSW_DATA_FILE"
 
 T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
 
 _INDEX_RE = re.compile(r"-\d+")
 
@@ -302,6 +303,27 @@ def describe(logbook: Logbook, span: Span) -> str:
     return f"{name} ({tags})" if tags else name
 
 
+def description_option(help_text: str) -> Callable[[F], F]:
+    """The shared ``-d/--description`` option; the value arrives as ``span_description``."""
+    return click.option("-d", "--description", "span_description", metavar="TEXT", help=help_text)
+
+
+def apply_description(logbook: Logbook, span_id: str, text: str | None, at: datetime) -> None:
+    """Set the span's description when ``text`` was given (empty clears it)."""
+    if text is not None:
+        logbook.set_span_description(span_id, text, at)
+
+
+def first_line(text: str, width: int) -> str:
+    """The first line of ``text``, ellipsized to at most ``width`` characters."""
+    lines = text.strip().splitlines()
+    line = lines[0] if lines else ""
+    suffix = "…" if len(lines) > 1 else ""
+    if len(line) + len(suffix) > width:
+        return line[: max(width - 1, 0)] + "…"
+    return line + suffix
+
+
 def span_to_json(logbook: Logbook, span: Span, now: datetime) -> dict[str, Any]:
     stopped = span.stopped_at
     end = stopped if stopped is not None else now
@@ -313,6 +335,7 @@ def span_to_json(logbook: Logbook, span: Span, now: datetime) -> dict[str, Any]:
         "project": project_name(logbook, span),
         "client": client_name(logbook, span),
         "tags": tag_names(logbook, span),
+        "description": span.description,
         "seconds": int((end - span.started_at).total_seconds()),
     }
 
