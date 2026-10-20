@@ -9,9 +9,10 @@ from typing import Any
 
 import click
 from click.core import ParameterSource
+from click.shell_completion import get_completion_class
 from contextswitch_core import Logbook, StorageError, decrypt_envelope
 
-from cosw import __version__
+from cosw import __version__, completers
 from cosw.config import (
     CONFIG_SKELETON,
     ENV_CONFIG,
@@ -67,7 +68,7 @@ def main(ctx: click.Context, data_file: Path | None, config_file: Path | None) -
         # or broken config file: config is the tool that creates and fixes
         # it, and decrypt operates on a standalone envelope file, needing no
         # storage configuration at all.
-        if ctx.invoked_subcommand not in ("config", "decrypt"):
+        if ctx.invoked_subcommand not in ("config", "decrypt", "completion"):
             raise
         config = Config(path=config_path)
     ctx.obj["config"] = config
@@ -98,7 +99,9 @@ def _resolve_all(
 
 
 @main.command()
-@click.argument("args", nargs=-1, metavar="PROJECT [+TAG ...]")
+@click.argument(
+    "args", nargs=-1, metavar="PROJECT [+TAG ...]", shell_complete=completers.classification
+)
 @click.option("--at", "at_str", metavar="WHEN", help="Start time (ISO 8601 or HH:MM); default now.")
 @click.pass_context
 def start(ctx: click.Context, args: tuple[str, ...], at_str: str | None) -> None:
@@ -144,7 +147,9 @@ def stop(ctx: click.Context, at_str: str | None) -> None:
 
 
 @main.command()
-@click.argument("args", nargs=-1, metavar="PROJECT [+TAG ...]")
+@click.argument(
+    "args", nargs=-1, metavar="PROJECT [+TAG ...]", shell_complete=completers.classification
+)
 @click.option(
     "--at", "at_str", metavar="WHEN", help="Switch time (ISO 8601 or HH:MM); default now."
 )
@@ -314,6 +319,24 @@ def decrypt(file: Path, passphrase: str | None, passphrase_command: str | None) 
         click.echo(plaintext)
     except (StorageError, ValueError) as e:
         raise click.ClickException(f"decryption failed: {e}") from e
+
+
+COMPLETION_PROGRAMS = ("cosw", "contextswitch")
+
+
+@main.command()
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completion(shell: str) -> None:
+    """Print the shell completion script for SHELL.
+
+    Registers both the cosw and contextswitch entry points. Example:
+    cosw completion zsh > ~/.zfunc/_cosw
+    """
+    shell_class = get_completion_class(shell)
+    assert shell_class is not None
+    for prog in COMPLETION_PROGRAMS:
+        var = f"_{prog.upper()}_COMPLETE"
+        click.echo(shell_class(main, {}, prog, var).source())
 
 
 # Command modules register themselves on ``main`` when imported.

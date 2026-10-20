@@ -23,6 +23,7 @@ from contextswitch_core import (
 )
 
 from cosw.config import Config
+from cosw.namecache import write_names
 from cosw.timeparse import parse_datetime
 
 ENV_DATA_FILE = "COSW_DATA_FILE"
@@ -104,10 +105,11 @@ def get_provider(ctx: click.Context) -> LocalFsProvider | S3Provider:
 def read_logbook(ctx: click.Context) -> Logbook:
     try:
         logbook = get_provider(ctx).read().logbook
-        assert isinstance(logbook, Logbook)
-        return logbook
     except StorageError as e:
         raise click.ClickException(str(e)) from e
+    assert isinstance(logbook, Logbook)
+    write_names(ctx.obj["config"], ctx.obj["data_file"], logbook)
+    return logbook
 
 
 def storage_info(ctx: click.Context) -> dict[str, str]:
@@ -156,6 +158,7 @@ def transact(
         provider.commit(logbook, snap.version)
     except (DomainError, StorageError) as e:
         raise click.ClickException(str(e)) from e
+    write_names(ctx.obj["config"], ctx.obj["data_file"], logbook)
     return result
 
 

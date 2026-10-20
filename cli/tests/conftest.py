@@ -14,6 +14,7 @@ from cosw.cli import main
 def _isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep a real user config file from leaking into tests."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
     monkeypatch.delenv("COSW_CONFIG", raising=False)
 
 

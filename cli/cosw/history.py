@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 import click
 from contextswitch_core import Logbook, Span
 
+from cosw import completers
 from cosw.cli import main
 from cosw.core import (
     client_name,
@@ -42,7 +43,9 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 
 
 @main.command()
-@click.argument("args", nargs=-1, metavar="PROJECT [+TAG ...]")
+@click.argument(
+    "args", nargs=-1, metavar="PROJECT [+TAG ...]", shell_complete=completers.classification
+)
 @click.option("--from", "from_str", required=True, metavar="WHEN", help="Span start time.")
 @click.option(
     "--to",
@@ -97,12 +100,25 @@ def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
 
 
 @main.command(context_settings={"ignore_unknown_options": True})
-@click.argument("args", nargs=-1, metavar="[SPAN] [+TAG ...]")
+@click.argument("args", nargs=-1, metavar="[SPAN] [+TAG ...]", shell_complete=completers.tag_words)
 @click.option("--start", "start_str", metavar="WHEN", help="New start time.")
 @click.option("--stop", "stop_str", metavar="WHEN", help="New stop time (stopped spans only).")
-@click.option("--project", "project_name", metavar="NAME", help="Assign to a project.")
+@click.option(
+    "--project",
+    "project_name",
+    metavar="NAME",
+    help="Assign to a project.",
+    shell_complete=completers.names("project"),
+)
 @click.option("--unassign", is_flag=True, help="Clear the span's project.")
-@click.option("--untag", "untags", multiple=True, metavar="TAG", help="Remove a tag.")
+@click.option(
+    "--untag",
+    "untags",
+    multiple=True,
+    metavar="TAG",
+    help="Remove a tag.",
+    shell_complete=completers.names("tag"),
+)
 @click.pass_context
 def edit(
     ctx: click.Context,
@@ -216,13 +232,21 @@ def _filter_options(command: _F) -> _F:
         ),
         click.option("--from", "from_str", metavar="WHEN", help="Range start."),
         click.option("--to", "to_str", metavar="WHEN", help="Range end (inclusive)."),
-        click.option("-p", "--project", "projects", multiple=True, help="Only this project."),
+        click.option(
+            "-p",
+            "--project",
+            "projects",
+            multiple=True,
+            help="Only this project.",
+            shell_complete=completers.names("project"),
+        ),
         click.option(
             "-T",
             "--tag",
             "tags",
             multiple=True,
             help="Only spans having all of these tags.",
+            shell_complete=completers.names("tag"),
         ),
         click.option(
             "--client",
@@ -232,10 +256,18 @@ def _filter_options(command: _F) -> _F:
             help="Only spans whose project carries this client label.",
         ),
         click.option(
-            "--ignore-project", "ignore_projects", multiple=True, help="Exclude this project."
+            "--ignore-project",
+            "ignore_projects",
+            multiple=True,
+            help="Exclude this project.",
+            shell_complete=completers.names("project"),
         ),
         click.option(
-            "--ignore-tag", "ignore_tags", multiple=True, help="Exclude spans with this tag."
+            "--ignore-tag",
+            "ignore_tags",
+            multiple=True,
+            help="Exclude spans with this tag.",
+            shell_complete=completers.names("tag"),
         ),
         click.option(
             "--ignore-client",
