@@ -78,6 +78,17 @@ pub struct SpanRec {
     pub is_active: bool,
 }
 
+/// How [`CoswStore::edit_span`] treats the span's project assignment.
+#[derive(uniffi::Enum)]
+pub enum ProjectEdit {
+    /// Leave the project unchanged.
+    Keep,
+    /// Assign this project.
+    Set { project_id: String },
+    /// Clear the assignment; the time stays visible as unassigned.
+    Clear,
+}
+
 /// A point-in-time view of the canonical logbook, safe to render.
 #[derive(uniffi::Record)]
 pub struct SnapshotRec {
@@ -453,51 +464,63 @@ impl CoswStore {
         })
     }
 
-    /// Record a span that was not tracked live.
+    /// Record a span that was not tracked live; `description` (None or
+    /// blank = none) says what was done.
     pub fn add_span(
         &self,
         started_at: String,
         stopped_at: String,
         project_id: Option<String>,
         tag_ids: Vec<String>,
+        description: Option<String>,
     ) -> Result<SnapshotRec, MobileError> {
         let started = parse_time(&started_at)?;
         let stopped = parse_time(&stopped_at)?;
         let project_id = parse_uuid_opt(&project_id)?;
         let tag_ids = parse_uuid_vec(&tag_ids)?;
         self.mutate(|lb| {
-            lb.add_span(started, stopped, project_id, tag_ids.clone(), Utc::now())
-                .map(|_| ())
+            let id = lb.add_span(started, stopped, project_id, tag_ids.clone(), Utc::now())?;
+            lb.set_span_description(id, description.clone(), Utc::now())
         })
     }
 
-    /// Edit a stopped span's times and tags. `None` leaves a field unchanged.
-    /// `project_id` is managed via [`CoswStore::assign_project`].
+    /// Edit a span's times, tags, project, and description. `None` leaves a
+    /// field unchanged; an empty description clears it; `project` selects
+    /// keep/set/clear via [`ProjectEdit`].
     pub fn edit_span(
         &self,
         span_id: String,
         started_at: Option<String>,
         stopped_at: Option<String>,
         tag_ids: Option<Vec<String>>,
+        project: ProjectEdit,
+        description: Option<String>,
     ) -> Result<SnapshotRec, MobileError> {
         let span_id = parse_uuid(&span_id)?;
         let started = started_at.map(|s| parse_time(&s)).transpose()?;
         let stopped = stopped_at.map(|s| parse_time(&s)).transpose()?;
         let tag_ids = tag_ids.map(|v| parse_uuid_vec(&v)).transpose()?;
-        self.mutate(|lb| lb.edit_span(span_id, Utc::now(), started, stopped, None, tag_ids.clone()))
-    }
-
-    /// Set or clear (`None`) a span's project assignment.
-    pub fn assign_project(
-        &self,
-        span_id: String,
-        project_id: Option<String>,
-    ) -> Result<SnapshotRec, MobileError> {
-        let span_id = parse_uuid(&span_id)?;
-        let project_id = parse_uuid_opt(&project_id)?;
-        self.mutate(|lb| match project_id {
-            Some(p) => lb.edit_span(span_id, Utc::now(), None, None, Some(p), None),
-            None => lb.unassign_span(span_id, Utc::now()),
+        let project_id = match &project {
+            ProjectEdit::Keep => None,
+            ProjectEdit::Set { project_id } => Some(parse_uuid(project_id)?),
+            ProjectEdit::Clear => None,
+        };
+        self.mutate(|lb| {
+            lb.edit_span(
+                span_id,
+                Utc::now(),
+                started,
+                stopped,
+                project_id,
+                tag_ids.clone(),
+            )?;
+            if matches!(project, ProjectEdit::Clear) {
+                lb.unassign_span(span_id, Utc::now())?;
+            }
+            if let Some(description) = &description {
+                lb.set_span_description(span_id, Some(description.clone()), Utc::now())?;
+            }
+            Ok(())
         })
     }
 
@@ -604,8 +627,10 @@ pub fn snapshot_from_json(
     logbook_json: String,
     location_url: String,
 ) -> Result<SnapshotRec, MobileError> {
-    let lb: Logbook =
-        serde_json::from_str(&logbook_json).map_err(|e| MobileError::Corrupt(e.to_string()))?;
+    let lb: Logbook = serde_json::from_str::<Logbook>(&logbook_json)
+        .map_err(|e| MobileError::Corrupt(e.to_string()))?
+        .migrate()
+        .map_err(|e| MobileError::Corrupt(e.to_string()))?;
     snapshot_rec(
         contextswitch_core::storage::StorageSnapshot {
             version: lb.revision.to_string(),
@@ -663,4 +688,162 @@ pub fn serialize_portable_config(
         endpoint.as_deref(),
         use_path_style,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn local_store() -> (tempfile::TempDir, Arc<CoswStore>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.json").to_string_lossy().into_owned();
+        let store = CoswStore::open(StorageConfig::Local { path }).unwrap();
+        (dir, store)
+    }
+
+    fn only_span(snap: &SnapshotRec) -> &SpanRec {
+        snap.spans.first().expect("expected exactly one span")
+    }
+
+    #[test]
+    fn add_span_with_description_round_trips() {
+        let (_dir, store) = local_store();
+        let snap = store
+            .add_span(
+                "2026-10-20T08:00:00Z".to_string(),
+                "2026-10-20T09:00:00Z".to_string(),
+                None,
+                vec![],
+                Some("  wrote tests  ".to_string()),
+            )
+            .unwrap();
+        assert_eq!(only_span(&snap).description.as_deref(), Some("wrote tests"));
+        assert_eq!(
+            only_span(&store.snapshot().unwrap()).description.as_deref(),
+            Some("wrote tests")
+        );
+    }
+
+    #[test]
+    fn add_span_blank_description_is_none() {
+        let (_dir, store) = local_store();
+        for (hour, description) in [(8, None), (10, Some("   ".to_string()))] {
+            let snap = store
+                .add_span(
+                    format!("2026-10-20T{hour:02}:00:00Z"),
+                    format!("2026-10-20T{hour:02}:30:00Z"),
+                    None,
+                    vec![],
+                    description,
+                )
+                .unwrap();
+            assert_eq!(
+                snap.spans
+                    .iter()
+                    .find(|s| s.started_at.contains(&format!("T{hour:02}:")))
+                    .unwrap()
+                    .description,
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn add_span_overlong_description_errors_and_writes_nothing() {
+        let (_dir, store) = local_store();
+        let result = store.add_span(
+            "2026-10-20T08:00:00Z".to_string(),
+            "2026-10-20T09:00:00Z".to_string(),
+            None,
+            vec![],
+            Some("x".repeat(1001)),
+        );
+        assert!(matches!(result, Err(MobileError::Invalid(_))));
+        assert!(store.snapshot().unwrap().spans.is_empty());
+    }
+
+    #[test]
+    fn edit_span_sets_leaves_and_clears_description() {
+        let (_dir, store) = local_store();
+        let snap = store
+            .add_span(
+                "2026-10-20T08:00:00Z".to_string(),
+                "2026-10-20T09:00:00Z".to_string(),
+                None,
+                vec![],
+                Some("first".to_string()),
+            )
+            .unwrap();
+        let id = only_span(&snap).id.clone();
+
+        let snap = store
+            .edit_span(id.clone(), None, None, None, ProjectEdit::Keep, None)
+            .unwrap();
+        assert_eq!(only_span(&snap).description.as_deref(), Some("first"));
+
+        let snap = store
+            .edit_span(
+                id.clone(),
+                None,
+                None,
+                None,
+                ProjectEdit::Keep,
+                Some("second".to_string()),
+            )
+            .unwrap();
+        assert_eq!(only_span(&snap).description.as_deref(), Some("second"));
+
+        let snap = store
+            .edit_span(id, None, None, None, ProjectEdit::Keep, Some(String::new()))
+            .unwrap();
+        assert_eq!(only_span(&snap).description, None);
+    }
+
+    #[test]
+    fn edit_span_project_edit_keep_set_clear() {
+        let (_dir, store) = local_store();
+        let snap = store.add_project("work".to_string(), None).unwrap();
+        let project = snap.projects[0].id.clone();
+        let snap = store
+            .add_span(
+                "2026-10-20T08:00:00Z".to_string(),
+                "2026-10-20T09:00:00Z".to_string(),
+                None,
+                vec![],
+                None,
+            )
+            .unwrap();
+        let id = only_span(&snap).id.clone();
+        assert_eq!(only_span(&snap).project_id, None);
+
+        let snap = store
+            .edit_span(
+                id.clone(),
+                None,
+                None,
+                None,
+                ProjectEdit::Set {
+                    project_id: project.clone(),
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            only_span(&snap).project_id.as_deref(),
+            Some(project.as_str())
+        );
+
+        let snap = store
+            .edit_span(id.clone(), None, None, None, ProjectEdit::Keep, None)
+            .unwrap();
+        assert_eq!(
+            only_span(&snap).project_id.as_deref(),
+            Some(project.as_str())
+        );
+
+        let snap = store
+            .edit_span(id, None, None, None, ProjectEdit::Clear, None)
+            .unwrap();
+        assert_eq!(only_span(&snap).project_id, None);
+    }
 }

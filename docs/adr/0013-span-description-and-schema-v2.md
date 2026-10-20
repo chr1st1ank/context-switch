@@ -57,7 +57,8 @@ Chosen: **bump to schema v2**, a deliberate breaking change.
   for future schema changes.
 - Bad: all devices must be upgraded together; the first v2 commit cannot
   be undone by downgrading a client.
-- The Android UI for viewing and editing descriptions is a follow-up; the
-  UniFFI `SpanRec` already carries the field.
+- The Android client shows and edits descriptions; `CoswStore::edit_span`
+  gained a `ProjectEdit` tri-state (keep/set/clear) that absorbed
+  `assign_project` so one dialog save is one commit.
 
 See ADR-0004 for the schema this extends.
