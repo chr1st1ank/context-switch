@@ -2,7 +2,9 @@ package dev.contextswitch.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -14,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.contextswitch.LogbookStore
+import dev.contextswitch.ProjectRec
+import dev.contextswitch.TagRec
 import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.LocalDateTime
@@ -38,8 +42,11 @@ fun TimerScreen(store: LogbookStore) {
     var tagIds by remember { mutableStateOf(setOf<String>()) }
     var switchAtOpen by remember { mutableStateOf(false) }
     var editingActive by remember { mutableStateOf(false) }
-    val projects = snap?.projects?.filter { !it.archived }.orEmpty()
-    val tags = snap?.tags?.filter { !it.archived }.orEmpty()
+    var overflowSection by remember { mutableStateOf<OverflowSection?>(null) }
+    val usage = remember(snap) { snap?.let { computeUsage(it.spans, it.projects, it.tags) } }
+    val projects = usage?.projects.orEmpty()
+    val tags = usage?.tags.orEmpty()
+    val combos = usage?.combos.orEmpty()
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (active != null) {
@@ -73,36 +80,92 @@ fun TimerScreen(store: LogbookStore) {
             }
         }
 
-        Column {
-            Text("📁 Project", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        if (combos.isNotEmpty()) {
+            SectionHeader("🕒 Recent")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                maxLines = RECENT_MAX_ROWS,
+                overflow = FlowRowOverflow.expandIndicator {
+                    EllipsisChip { overflowSection = OverflowSection.RECENT }
+                },
+            ) {
+                combos.forEach { c ->
+                    ComboChip(
+                        c,
+                        selected = projectId == c.projectId && tagIds == c.tagIds,
+                    ) {
+                        projectId = c.projectId
+                        tagIds = c.tagIds
+                    }
+                }
+            }
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = projectId == null, onClick = { projectId = null }, label = { Text("unassigned") })
+
+        SectionHeader("📁 Project")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            maxLines = PROJECT_MAX_ROWS,
+            overflow = FlowRowOverflow.expandIndicator {
+                EllipsisChip { overflowSection = OverflowSection.PROJECTS }
+            },
+        ) {
+            UnassignedChip(projectId == null) { projectId = null }
             projects.forEach { p ->
-                FilterChip(
-                    selected = projectId == p.id,
-                    onClick = { projectId = p.id },
-                    label = { Text(p.name) },
-                    leadingIcon = { Box(Modifier.size(10.dp).background(projectColor(p.id), CircleShape)) },
-                )
+                ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
             }
         }
 
         if (tags.isNotEmpty()) {
-            Column {
-                Text("🏷️ Tags", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader("🏷️ Tags")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                maxLines = TAG_MAX_ROWS,
+                overflow = FlowRowOverflow.expandIndicator {
+                    EllipsisChip { overflowSection = OverflowSection.TAGS }
+                },
+            ) {
                 tags.forEach { t ->
-                    FilterChip(
-                        selected = t.id in tagIds,
-                        onClick = { tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id },
-                        label = { Text(t.name) },
-                    )
+                    TagChip(t, selected = t.id in tagIds) {
+                        tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+                    }
                 }
             }
+        }
+
+        overflowSection?.let { section ->
+            AlertDialog(
+                onDismissRequest = { overflowSection = null },
+                title = { Text(section.title) },
+                text = {
+                    FlowRow(
+                        Modifier.verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        when (section) {
+                            OverflowSection.RECENT -> combos.forEach { c ->
+                                ComboChip(c, selected = projectId == c.projectId && tagIds == c.tagIds) {
+                                    projectId = c.projectId
+                                    tagIds = c.tagIds
+                                }
+                            }
+                            OverflowSection.PROJECTS -> {
+                                UnassignedChip(projectId == null) { projectId = null }
+                                projects.forEach { p ->
+                                    ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
+                                }
+                            }
+                            OverflowSection.TAGS -> tags.forEach { t ->
+                                TagChip(t, selected = t.id in tagIds) {
+                                    tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { overflowSection = null }) { Text("Done") }
+                },
+            )
         }
 
         Spacer(Modifier.weight(1f))
@@ -173,3 +236,64 @@ fun TimerScreen(store: LogbookStore) {
         }
     }
 }
+
+private const val RECENT_MAX_ROWS = 2
+private const val PROJECT_MAX_ROWS = 2
+private const val TAG_MAX_ROWS = 2
+
+private enum class OverflowSection(val title: String) {
+    RECENT("Recent"),
+    PROJECTS("Project"),
+    TAGS("Tags"),
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Column {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Composable
+private fun UnassignedChip(selected: Boolean, onClick: () -> Unit) =
+    FilterChip(selected = selected, onClick = onClick, label = { Text("unassigned") })
+
+@Composable
+private fun ProjectChip(project: ProjectRec, selected: Boolean, onClick: () -> Unit) =
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = { Box(Modifier.size(10.dp).background(projectColor(project.id), CircleShape)) },
+    )
+
+@Composable
+private fun TagChip(tag: TagRec, selected: Boolean, onClick: () -> Unit) =
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(tag.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    )
+
+/** One-tap chip for a (project, tag-set) combo: `project +tag1 +tag2`, tags capped at 3. */
+@Composable
+private fun ComboChip(combo: RecentCombo, selected: Boolean, onClick: () -> Unit) {
+    val shown = combo.tagNames.take(3)
+    val label = buildString {
+        append(combo.projectName)
+        shown.forEach { append(" +").append(it) }
+        val rest = combo.tagNames.size - shown.size
+        if (rest > 0) append(" +").append(rest)
+    }
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = { Box(Modifier.size(10.dp).background(projectColor(combo.projectId), CircleShape)) },
+    )
+}
+
+@Composable
+private fun EllipsisChip(onClick: () -> Unit) =
+    FilterChip(selected = false, onClick = onClick, label = { Text("…") })
