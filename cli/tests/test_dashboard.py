@@ -81,7 +81,7 @@ def test_dashboard_serves_html(dashboard_url: str) -> None:
     status, headers, body = _get(dashboard_url + "/")
     assert status == 200
     assert "text/html" in headers["Content-Type"]
-    assert b"Dashboard" in body
+    assert b"dashboard" in body
 
 
 def test_dashboard_serves_chart_js(dashboard_url: str) -> None:
