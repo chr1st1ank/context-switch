@@ -1,6 +1,8 @@
 """Shell completion: script generation, name cache, and dynamic completers."""
 
+import shutil
 import stat
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -50,6 +52,51 @@ def test_completion_script_registers_both_entry_points(
 
 def test_completion_rejects_unknown_shell(invoke: Callable[..., Result]) -> None:
     assert invoke("completion", "powershell").exit_code != 0
+
+
+def test_zsh_script_is_single_compdef_file(invoke: Callable[..., Result]) -> None:
+    result = invoke("completion", "zsh")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("#compdef cosw contextswitch\n")
+    assert result.output.count("#compdef") == 1
+    assert "_cosw_completion()" in result.output
+    assert "_contextswitch_completion()" in result.output
+    assert '"_${service}_completion"' in result.output
+    assert "compdef _cosw_completion cosw" in result.output
+    assert "compdef _contextswitch_completion contextswitch" in result.output
+
+
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_zsh_script_registers_both_commands_via_fpath(
+    invoke: Callable[..., Result], tmp_path: Path
+) -> None:
+    zfunc = tmp_path / "zfunc"
+    zfunc.mkdir()
+    (zfunc / "_cosw").write_text(invoke("completion", "zsh").output)
+    script = (
+        f"fpath=({zfunc} $fpath); autoload -Uz compinit;"
+        f" compinit -d {tmp_path}/zcompdump;"
+        ' print -r -- "$_comps[cosw] $_comps[contextswitch]"'
+    )
+    out = subprocess.run(["zsh", "-fc", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "_cosw _cosw"
+
+
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_zsh_script_registers_both_commands_when_sourced(
+    invoke: Callable[..., Result], tmp_path: Path
+) -> None:
+    script_file = tmp_path / "_cosw"
+    script_file.write_text(invoke("completion", "zsh").output)
+    script = (
+        f"autoload -Uz compinit; compinit -d {tmp_path}/zcompdump;"
+        f" source {script_file};"
+        ' print -r -- "$_comps[cosw] $_comps[contextswitch]"'
+    )
+    out = subprocess.run(["zsh", "-fc", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "_cosw_completion _contextswitch_completion"
 
 
 def test_completion_script_works_with_broken_config(

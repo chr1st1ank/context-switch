@@ -107,10 +107,12 @@ fuller tour of `status`, `resume`, `log`, and `report`.
 `cosw completion SHELL` prints a completion script for bash, zsh or fish. It
 registers both the `cosw` and `contextswitch` commands.
 
+Source it from your shell's startup file:
+
 ```bash
-cosw completion bash > ~/.local/share/bash-completion/completions/cosw
-cosw completion zsh > ~/.zfunc/_cosw      # ~/.zfunc must be on $fpath
-cosw completion fish > ~/.config/fish/completions/cosw.fish
+eval "$(cosw completion bash)"    # ~/.bashrc
+eval "$(cosw completion zsh)"     # ~/.zshrc, after compinit
+cosw completion fish | source     # ~/.config/fish/config.fish
 ```
 
 Subcommands and options always complete. Project and tag names (`start`,

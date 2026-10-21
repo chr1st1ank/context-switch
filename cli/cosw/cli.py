@@ -9,7 +9,7 @@ from typing import Any
 
 import click
 from click.core import ParameterSource
-from click.shell_completion import get_completion_class
+from click.shell_completion import ShellComplete, get_completion_class
 from contextswitch_core import Logbook, StorageError, decrypt_envelope
 
 from cosw import __version__, completers
@@ -346,14 +346,48 @@ COMPLETION_PROGRAMS = ("cosw", "contextswitch")
 def completion(shell: str) -> None:
     """Print the shell completion script for SHELL.
 
-    Registers both the cosw and contextswitch entry points. Example:
-    cosw completion zsh > ~/.zfunc/_cosw
+    Registers both the cosw and contextswitch entry points. Source it
+    from your shell's startup file, e.g.:
+
+        eval "$(cosw completion zsh)"     # in ~/.zshrc, after compinit
     """
     shell_class = get_completion_class(shell)
     assert shell_class is not None
+    if shell == "zsh":
+        click.echo(_zsh_script(shell_class))
+        return
     for prog in COMPLETION_PROGRAMS:
         var = f"_{prog.upper()}_COMPLETE"
         click.echo(shell_class(main, {}, prog, var).source())
+
+
+def _zsh_script(shell_class: type[ShellComplete]) -> str:
+    """Merge the per-program zsh scripts into one fpath-loadable file.
+
+    compinit only honors the first ``#compdef`` line of a file, so the
+    merged script registers both commands there and dispatches on
+    ``$service`` when invoked as a completion function.
+    """
+    functions = []
+    for prog in COMPLETION_PROGRAMS:
+        var = f"_{prog.upper()}_COMPLETE"
+        source = shell_class(main, {}, prog, var).source().strip()
+        parts = source.split("\n\n")
+        assert parts[0] == f"#compdef {prog}", f"unexpected zsh script: {source!r}"
+        functions.append("\n\n".join(parts[1:-1]))
+    compdefs = "\n".join(f"    compdef _{prog}_completion {prog}" for prog in COMPLETION_PROGRAMS)
+    programs = " ".join(COMPLETION_PROGRAMS)
+    return f"""#compdef {programs}
+
+{"\n\n".join(functions)}
+
+if [[ $zsh_eval_context[-1] == loadautofunc || -n $service ]]; then
+    # loaded from fpath or called as the completer: dispatch on the command
+    "_${{service}}_completion" "$@"
+else
+    # eval'd or sourced: register both entry points
+{compdefs}
+fi"""
 
 
 # Command modules register themselves on ``main`` when imported.
