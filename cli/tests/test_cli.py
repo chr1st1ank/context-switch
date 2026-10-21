@@ -26,6 +26,7 @@ def test_main_help(invoke) -> None:
         "remove",
         "log",
         "report",
+        "dashboard",
         "projects",
         "tags",
     ):
@@ -46,6 +47,7 @@ def test_short_help_everywhere(invoke) -> None:
         ["remove", "-h"],
         ["log", "-h"],
         ["report", "-h"],
+        ["dashboard", "-h"],
         ["projects", "-h"],
         ["projects", "add", "-h"],
         ["tags", "-h"],

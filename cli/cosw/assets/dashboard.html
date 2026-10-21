@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>context-switch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap"
+    rel="stylesheet" />
+  <script src="/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f2ea;
+      --bg-accent: #f1e6d6;
+      --ink: #1b1c1d;
+      --muted: #6c645b;
+      --card: #fffaf3;
+      --border: #e6d8c6;
+      --accent: #0f766e;
+      --shadow: 0 12px 40px rgba(24, 22, 18, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 20% 20%, #fff3e1 0, transparent 50%),
+        radial-gradient(circle at 90% 10%, #e2f4f2 0, transparent 45%),
+        linear-gradient(160deg, var(--bg) 0%, var(--bg-accent) 100%);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 32px 24px 8px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-family: "Newsreader", serif;
+      font-size: clamp(28px, 4vw, 40px);
+      margin: 0 0 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .subhead {
+      color: var(--muted);
+      margin: 0 0 16px;
+    }
+
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto 64px;
+      padding: 0 24px 24px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .summary-grid {
+      grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(320px, 2fr);
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .filters {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    select,
+    input[type="date"],
+    button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      font: inherit;
+      background: #fff;
+    }
+
+    select[multiple] {
+      min-height: 120px;
+    }
+
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(15, 118, 110, 0.25);
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .summary .value {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .canvas-wrap {
+      height: 320px;
+    }
+
+    .chart-toggle {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .chart-toggle select {
+      max-width: 240px;
+    }
+
+    .is-hidden {
+      display: none;
+    }
+
+    .timetable {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      overflow: auto;
+    }
+
+    .timetable-header,
+    .timetable-body {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+    }
+
+    .timetable-axis-header {
+      border-right: 1px solid var(--border);
+    }
+
+    .timetable-days-header {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(140px, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .timetable-day-label {
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .timetable-axis {
+      position: relative;
+      height: var(--timetable-height);
+      border-right: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .timetable-axis .tick {
+      position: absolute;
+      left: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      transform: translateY(-6px);
+    }
+
+    .timetable-grid {
+      position: relative;
+      height: var(--timetable-height);
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(140px, 1fr);
+      background-image: repeating-linear-gradient(to bottom,
+          transparent 0,
+          transparent calc(var(--hour-height) - 1px),
+          var(--border) calc(var(--hour-height) - 1px),
+          var(--border) var(--hour-height));
+    }
+
+    .timetable-day {
+      position: relative;
+      border-right: 1px solid var(--border);
+    }
+
+    .timetable-block {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      border-radius: 8px;
+      opacity: 0.9;
+    }
+
+    .timetable-empty-message {
+      display: none;
+      padding: 12px 4px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .timetable-empty-message.show {
+      display: block;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    td.desc {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #f3ede4;
+      font-size: 12px;
+      margin-right: 6px;
+      margin-bottom: 4px;
+    }
+
+    .pill.running {
+      background: #d7ece9;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .notice {
+      display: none;
+      background: #fff1dc;
+      border: 1px solid #f1d1a8;
+      color: #6b3f09;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 12px 0 0;
+      font-size: 13px;
+    }
+
+    .notice.show {
+      display: block;
+    }
+
+    .notice button {
+      width: auto;
+      margin-top: 8px;
+      padding: 8px 14px;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 28px;
+    }
+
+    @media (max-width: 720px) {
+      header {
+        padding: 24px 18px 8px;
+      }
+
+      .shell {
+        padding: 0 18px 18px;
+      }
+
+      select[multiple] {
+        min-height: 90px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>context-switch dashboard</h1>
+    <p class="subhead">See where your time went.</p>
+  </header>
+
+  <div class="shell">
+    <div class="card">
+      <h2>Filters</h2>
+      <div class="filters">
+        <div>
+          <label for="projectFilter">Projects</label>
+          <select id="projectFilter" multiple></select>
+        </div>
+        <div>
+          <label for="tagFilter">Tags</label>
+          <select id="tagFilter" multiple></select>
+        </div>
+        <div>
+          <label for="dateFrom">From</label>
+          <input id="dateFrom" type="date" />
+        </div>
+        <div>
+          <label for="dateTo">To</label>
+          <input id="dateTo" type="date" />
+        </div>
+        <div>
+          <label for="quickRange">Quick range</label>
+          <select id="quickRange">
+            <option value="">Custom</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last7">Last 7 days</option>
+            <option value="last14">Last 14 days</option>
+            <option value="thisWeek">This week</option>
+            <option value="lastWeek">Last week</option>
+            <option value="thisMonth">This month</option>
+            <option value="lastMonth">Last month</option>
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="resetFilters" type="button">Reset filters</button>
+        </div>
+      </div>
+      <div class="notice" id="loadNotice">
+        Could not load span data from the cosw server. Check that
+        <code>cosw dashboard</code> is still running, then retry.
+        <div>
+          <button id="retryLoad" type="button">Retry</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-3 summary-grid" style="margin-top: 16px;">
+      <div class="card summary">
+        <span class="muted">Total time</span>
+        <span class="value" id="totalTime">-</span>
+      </div>
+      <div class="card summary">
+        <span class="muted">Entries</span>
+        <span class="value" id="totalEntries">-</span>
+      </div>
+      <div class="card summary">
+        <span class="muted">Top project</span>
+        <span class="value" id="topProject">-</span>
+      </div>
+    </div>
+
+
+    <div class="card" style="margin-top: 16px;">
+      <div class="chart-toggle">
+        <h2 id="timeViewTitle">Time by day (stacked)</h2>
+        <select id="timeViewToggle">
+          <option value="stacked">Time by day (stacked)</option>
+          <option value="timetable">Timetable view</option>
+        </select>
+      </div>
+      <div id="stackedView" class="canvas-wrap">
+        <canvas id="stackedChart"></canvas>
+      </div>
+      <div id="timetableView">
+        <div class="timetable" id="timetable">
+          <div class="timetable-header">
+            <div class="timetable-axis-header"></div>
+            <div class="timetable-days-header" id="timetableDays"></div>
+          </div>
+          <div class="timetable-body">
+            <div class="timetable-axis" id="timetableAxis"></div>
+            <div class="timetable-grid" id="timetableGrid"></div>
+          </div>
+        </div>
+        <div class="timetable-empty-message" id="timetableEmpty">No entries for this range.</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top: 16px;">
+      <div class="card">
+        <h2>Distribution by project</h2>
+        <div class="canvas-wrap">
+          <canvas id="projectDonutChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Distribution by tag</h2>
+        <div class="canvas-wrap">
+          <canvas id="tagDonutChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h2>Entries</h2>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Start</th>
+              <th>End</th>
+              <th>Project</th>
+              <th>Tags</th>
+              <th>Duration</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody id="entriesTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footer">All times shown in local time.</div>
+  </div>
+
+  <script>
+    const COLORS = [
+      "#67001f",
+      "#b2182b",
+      "#d6604d",
+      "#f4a582",
+      "#fddbc7",
+      "#f7f7f7",
+      "#d1e5f0",
+      "#92c5de",
+      "#4393c3",
+      "#2166ac",
+      "#053061",
+      "#00441b",
+      "#1b7837",
+      "#5aae61",
+      "#a6dba0",
+      "#e6f5d0",
+      "#f1b6da",
+      "#de77ae",
+      "#c51b7d",
+      "#8e0152",
+    ];
+
+    let entries = [];
+    let stackedChart = null;
+    let projectDonutChart = null;
+    let tagDonutChart = null;
+
+    const projectFilter = document.getElementById("projectFilter");
+    const tagFilter = document.getElementById("tagFilter");
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    const quickRange = document.getElementById("quickRange");
+    const resetFilters = document.getElementById("resetFilters");
+    const timeViewToggle = document.getElementById("timeViewToggle");
+    const timeViewTitle = document.getElementById("timeViewTitle");
+    const stackedView = document.getElementById("stackedView");
+    const timetableView = document.getElementById("timetableView");
+    const entriesTable = document.getElementById("entriesTable");
+    const totalTime = document.getElementById("totalTime");
+    const totalEntries = document.getElementById("totalEntries");
+    const topProject = document.getElementById("topProject");
+    const loadNotice = document.getElementById("loadNotice");
+    const retryLoad = document.getElementById("retryLoad");
+    const timetable = document.getElementById("timetable");
+    const timetableDays = document.getElementById("timetableDays");
+    const timetableAxis = document.getElementById("timetableAxis");
+    const timetableGrid = document.getElementById("timetableGrid");
+    const timetableEmpty = document.getElementById("timetableEmpty");
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function parseSpans(payload) {
+      const rows = Array.isArray(payload?.spans) ? payload.spans : [];
+      const now = Date.now();
+      return rows
+        .map((row) => {
+          if (!row || !row.started_at) return null;
+          const start = new Date(row.started_at);
+          const end = row.stopped_at ? new Date(row.stopped_at) : new Date(now);
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            return null;
+          }
+          return {
+            start,
+            end,
+            project: row.project || "(unassigned)",
+            tags: Array.isArray(row.tags) ? row.tags : [],
+            durationSec: Math.max(0, (end.getTime() - start.getTime()) / 1000),
+            description: row.description || "",
+            active: row.active === true,
+            id: row.id,
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function formatDuration(seconds) {
+      const totalMinutes = Math.round(seconds / 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      if (hours === 0) return `${minutes}m`;
+      return `${hours}h ${minutes}m`;
+    }
+
+    function formatDateTime(date) {
+      return date.toLocaleString();
+    }
+
+    function firstLine(text) {
+      const line = (text || "").trim().split("\n")[0];
+      return line;
+    }
+
+    function dateKey(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function startOfWeek(date) {
+      const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const day = copy.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      copy.setDate(copy.getDate() + diff);
+      copy.setHours(0, 0, 0, 0);
+      return copy;
+    }
+
+    function endOfWeek(date) {
+      const start = startOfWeek(date);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+      return end;
+    }
+
+    function startOfMonth(date) {
+      const start = new Date(date.getFullYear(), date.getMonth(), 1);
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+
+    function endOfMonth(date) {
+      const start = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      start.setHours(23, 59, 59, 999);
+      return start;
+    }
+
+    function getDateRange() {
+      const fromValue = dateFrom.value ? new Date(dateFrom.value) : null;
+      const toValue = dateTo.value ? new Date(dateTo.value) : null;
+      if (!fromValue || !toValue) return null;
+      const start = new Date(fromValue);
+      const end = new Date(toValue);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+
+    function buildDaysInRange(range) {
+      const days = [];
+      const cursor = new Date(range.start);
+      while (cursor <= range.end) {
+        days.push(new Date(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days;
+    }
+
+    function formatDayLabel(date) {
+      return date.toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "2-digit",
+        month: "2-digit",
+      });
+    }
+
+    function minutesSinceMidnight(date) {
+      return date.getHours() * 60 + date.getMinutes();
+    }
+
+    function formatDateInputValue(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function applyQuickRange(value) {
+      if (!value) return;
+      const now = new Date();
+      let start = null;
+      let end = new Date();
+      end.setHours(23, 59, 59, 999);
+
+      if (value === "today") {
+        start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+      } else if (value === "yesterday") {
+        start = new Date(now);
+        start.setDate(now.getDate() - 1);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+      } else if (value === "last7") {
+        start = new Date(now);
+        start.setDate(now.getDate() - 6);
+        start.setHours(0, 0, 0, 0);
+      } else if (value === "last14") {
+        start = new Date(now);
+        start.setDate(now.getDate() - 13);
+        start.setHours(0, 0, 0, 0);
+      } else if (value === "thisWeek") {
+        start = startOfWeek(now);
+        end = endOfWeek(now);
+      } else if (value === "lastWeek") {
+        const lastWeek = new Date(now);
+        lastWeek.setDate(now.getDate() - 7);
+        start = startOfWeek(lastWeek);
+        end = endOfWeek(lastWeek);
+      } else if (value === "thisMonth") {
+        start = startOfMonth(now);
+        end = endOfMonth(now);
+      } else if (value === "lastMonth") {
+        const lastMonth = new Date(now);
+        lastMonth.setMonth(now.getMonth() - 1);
+        start = startOfMonth(lastMonth);
+        end = endOfMonth(lastMonth);
+      }
+
+      if (!start) return;
+      dateFrom.value = formatDateInputValue(start);
+      dateTo.value = formatDateInputValue(end);
+    }
+
+    function getSelectedValues(select) {
+      return Array.from(select.selectedOptions).map((opt) => opt.value);
+    }
+
+    function applyFilters() {
+      const selectedProjects = getSelectedValues(projectFilter);
+      const selectedTags = getSelectedValues(tagFilter);
+      const fromValue = dateFrom.value ? new Date(dateFrom.value) : null;
+      const toValue = dateTo.value ? new Date(dateTo.value) : null;
+
+      const fromTs = fromValue ? fromValue.getTime() : null;
+      const toTs = toValue ? toValue.getTime() + 24 * 60 * 60 * 1000 - 1 : null;
+
+      return entries.filter((entry) => {
+        if (selectedProjects.length && !selectedProjects.includes(entry.project)) {
+          return false;
+        }
+        if (selectedTags.length) {
+          const hasTag = entry.tags.some((tag) => selectedTags.includes(tag));
+          if (!hasTag) return false;
+        }
+        const startMs = entry.start.getTime();
+        const endMs = entry.end.getTime();
+        if (fromTs !== null && endMs < fromTs) return false;
+        if (toTs !== null && startMs > toTs) return false;
+        return true;
+      });
+    }
+
+    function sumBy(items, keyFn) {
+      const map = new Map();
+      items.forEach((entry) => {
+        const key = keyFn(entry);
+        const current = map.get(key) || 0;
+        map.set(key, current + entry.durationSec);
+      });
+      return map;
+    }
+
+    function buildDayProjectMatrix(items) {
+      const days = new Map();
+      items.forEach((entry) => {
+        const day = dateKey(entry.start);
+        if (!days.has(day)) days.set(day, new Map());
+        const projectMap = days.get(day);
+        projectMap.set(
+          entry.project,
+          (projectMap.get(entry.project) || 0) + entry.durationSec
+        );
+      });
+      return days;
+    }
+
+    function buildProjectColorMap(items) {
+      const projects = Array.from(
+        new Set(items.map((entry) => entry.project))
+      ).sort();
+      const map = new Map();
+      projects.forEach((project, index) => {
+        map.set(project, COLORS[index % COLORS.length]);
+      });
+      return map;
+    }
+
+    function updateTimetable(items) {
+      const range = getDateRange();
+      if (!range) {
+        timetableDays.innerHTML = "";
+        timetableAxis.innerHTML = "";
+        timetableGrid.innerHTML = "";
+        timetableEmpty.classList.remove("show");
+        return;
+      }
+
+      const days = buildDaysInRange(range);
+      const dayKeys = new Map(days.map((day, index) => [dateKey(day), index]));
+      const projectColors = buildProjectColorMap(items);
+
+      timetableDays.innerHTML = days
+        .map((day) => `<div class="timetable-day-label">${formatDayLabel(day)}</div>`)
+        .join("");
+
+      const hourHeight = 48;
+      let startHour = 0;
+      let endHour = 24;
+      if (items.length) {
+        startHour = 23;
+        endHour = 1;
+        items.forEach((entry) => {
+          const entryStartHour = entry.start.getHours();
+          const entryEndHour = entry.end.getHours() + (entry.end.getMinutes() > 0 ? 1 : 0);
+          startHour = Math.min(startHour, entryStartHour);
+          endHour = Math.max(endHour, entryEndHour);
+        });
+        startHour = Math.max(0, startHour);
+        endHour = Math.min(24, Math.max(startHour + 1, endHour));
+      }
+      const visibleHours = endHour - startHour;
+      const timetableHeight = hourHeight * visibleHours;
+      timetable.style.setProperty("--hour-height", `${hourHeight}px`);
+      timetable.style.setProperty("--timetable-height", `${timetableHeight}px`);
+
+      timetableAxis.innerHTML = Array.from({ length: visibleHours + 1 }, (_, index) => {
+        const hourValue = startHour + index;
+        const hour = String(hourValue).padStart(2, "0");
+        const top = index * hourHeight;
+        return `<div class="tick" style="top:${top}px">${hour}:00</div>`;
+      }).join("");
+
+      timetableGrid.innerHTML = days
+        .map(() => `<div class="timetable-day"></div>`)
+        .join("");
+
+      const dayColumns = timetableGrid.querySelectorAll(".timetable-day");
+
+      items.forEach((entry) => {
+        const key = dateKey(entry.start);
+        const dayIndex = dayKeys.get(key);
+        if (dayIndex === undefined) return;
+
+        const startMinutes = minutesSinceMidnight(entry.start);
+        let endMinutes = minutesSinceMidnight(entry.end);
+        if (endMinutes === 0 && entry.end > entry.start) {
+          endMinutes = 24 * 60;
+        }
+        endMinutes = Math.max(startMinutes + 1, endMinutes);
+        const startOffset = (startMinutes / 60 - startHour) * hourHeight;
+        const height = ((endMinutes - startMinutes) / 60) * hourHeight;
+        const color = projectColors.get(entry.project) || COLORS[0];
+        const tagLabel = entry.tags.length ? entry.tags.join(", ") : "(no tag)";
+        const running = entry.active ? " (running)" : "";
+
+        const block = document.createElement("div");
+        block.className = "timetable-block";
+        block.style.top = `${startOffset}px`;
+        block.style.height = `${height}px`;
+        block.style.background = color;
+        block.title = `${entry.project}${running}\n${formatDateTime(entry.start)} - ${formatDateTime(entry.end)}\n${formatDuration(entry.durationSec)}\nTags: ${tagLabel}`;
+
+        dayColumns[dayIndex].appendChild(block);
+      });
+
+      if (!items.length) {
+        timetableEmpty.classList.add("show");
+      } else {
+        timetableEmpty.classList.remove("show");
+      }
+    }
+
+    function updateTimeView() {
+      const mode = timeViewToggle.value;
+      if (mode === "timetable") {
+        stackedView.classList.add("is-hidden");
+        timetableView.classList.remove("is-hidden");
+        timeViewTitle.textContent = "Timetable view";
+      } else {
+        stackedView.classList.remove("is-hidden");
+        timetableView.classList.add("is-hidden");
+        timeViewTitle.textContent = "Time by day (stacked)";
+      }
+    }
+
+    function updateFilters() {
+      const projects = Array.from(new Set(entries.map((e) => e.project))).sort();
+      const tags = Array.from(
+        new Set(entries.flatMap((e) => e.tags))
+      ).sort();
+
+      projectFilter.innerHTML = projects
+        .map((project) => `<option value="${escapeHtml(project)}">${escapeHtml(project)}</option>`)
+        .join("");
+      tagFilter.innerHTML = tags
+        .map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
+        .join("");
+    }
+
+    function updateSummary(items) {
+      const totalSec = items.reduce((sum, e) => sum + e.durationSec, 0);
+      totalTime.textContent = formatDuration(totalSec);
+      totalEntries.textContent = String(items.length);
+
+      const byProject = sumBy(items, (e) => e.project);
+
+      let topProjectLabel = "-";
+      let topProjectValue = 0;
+      byProject.forEach((value, key) => {
+        if (value > topProjectValue) {
+          topProjectValue = value;
+          topProjectLabel = key;
+        }
+      });
+
+      topProject.textContent =
+        topProjectLabel === "-"
+          ? "-"
+          : `${topProjectLabel} (${formatDuration(topProjectValue)})`;
+    }
+
+    function updateTable(items) {
+      entriesTable.innerHTML = items
+        .sort((a, b) => b.start - a.start)
+        .map((entry) => {
+          const endCell = entry.active
+            ? `<span class="pill running">running</span>`
+            : formatDateTime(entry.end);
+          const tags = entry.tags.length
+            ? entry.tags.map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")
+            : "-";
+          const desc = firstLine(entry.description);
+          return `
+              <tr>
+                <td>${formatDateTime(entry.start)}</td>
+                <td>${endCell}</td>
+                <td>${escapeHtml(entry.project)}</td>
+                <td>${tags}</td>
+                <td>${formatDuration(entry.durationSec)}</td>
+                <td class="desc" title="${escapeHtml(entry.description)}">${escapeHtml(desc) || "-"}</td>
+              </tr>
+            `;
+        })
+        .join("");
+    }
+
+    function updateStackedChart(items) {
+      const dayMatrix = buildDayProjectMatrix(items);
+      const days = Array.from(dayMatrix.keys()).sort();
+      const projects = Array.from(
+        new Set(items.map((entry) => entry.project))
+      ).sort();
+      const projectColors = buildProjectColorMap(items);
+
+      const datasets = projects.map((project, index) => {
+        const data = days.map((day) => {
+          const value = dayMatrix.get(day)?.get(project) || 0;
+          return Math.round((value / 3600) * 100) / 100;
+        });
+        return {
+          label: project,
+          data,
+          backgroundColor: projectColors.get(project) || COLORS[index % COLORS.length],
+        };
+      });
+
+      const ctx = document.getElementById("stackedChart").getContext("2d");
+      if (stackedChart) stackedChart.destroy();
+      stackedChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: days,
+          datasets,
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { stacked: true },
+            y: {
+              stacked: true,
+              title: { display: true, text: "Hours" },
+            },
+          },
+          plugins: {
+            legend: { position: "bottom" },
+          },
+        },
+      });
+    }
+
+
+    function buildTagMap(items) {
+      const map = new Map();
+      items.forEach((entry) => {
+        if (!entry.tags.length) {
+          map.set("(no tag)", (map.get("(no tag)") || 0) + entry.durationSec);
+          return;
+        }
+        entry.tags.forEach((tag) => {
+          map.set(tag, (map.get(tag) || 0) + entry.durationSec);
+        });
+      });
+      return map;
+    }
+
+    function renderDonutChart(canvasId, map, existingChart) {
+      const labels = Array.from(map.keys());
+      const data = labels.map((label) =>
+        Math.round((map.get(label) / 3600) * 100) / 100
+      );
+      const colors = labels.map((_, index) => COLORS[index % COLORS.length]);
+
+      const ctx = document.getElementById(canvasId).getContext("2d");
+      if (existingChart) existingChart.destroy();
+      return new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels,
+          datasets: [{ data, backgroundColor: colors }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "bottom" },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.label}: ${context.parsed}h`,
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function updateDonutCharts(items) {
+      const projectMap = sumBy(items, (e) => e.project);
+      const tagMap = buildTagMap(items);
+      projectDonutChart = renderDonutChart(
+        "projectDonutChart",
+        projectMap,
+        projectDonutChart
+      );
+      tagDonutChart = renderDonutChart(
+        "tagDonutChart",
+        tagMap,
+        tagDonutChart
+      );
+    }
+
+    function refresh() {
+      const filtered = applyFilters();
+      updateSummary(filtered);
+      updateStackedChart(filtered);
+      updateTimetable(filtered);
+      updateDonutCharts(filtered);
+      updateTable(filtered);
+    }
+
+    function initControls() {
+      [projectFilter, tagFilter, dateFrom, dateTo].forEach((el) =>
+        el.addEventListener("change", refresh)
+      );
+      timeViewToggle.addEventListener("change", () => {
+        updateTimeView();
+        refresh();
+      });
+      updateTimeView();
+      quickRange.addEventListener("change", () => {
+        applyQuickRange(quickRange.value);
+        refresh();
+      });
+      [dateFrom, dateTo].forEach((el) =>
+        el.addEventListener("input", () => {
+          if (quickRange.value) quickRange.value = "";
+        })
+      );
+      resetFilters.addEventListener("click", () => {
+        projectFilter.selectedIndex = -1;
+        tagFilter.selectedIndex = -1;
+        dateFrom.value = "";
+        dateTo.value = "";
+        quickRange.value = "thisWeek";
+        applyQuickRange("thisWeek");
+        refresh();
+      });
+      retryLoad.addEventListener("click", () => {
+        loadNotice.classList.remove("show");
+        loadSpans();
+      });
+    }
+
+    async function loadSpans() {
+      try {
+        const response = await fetch("./spans.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("fetch failed");
+        const data = await response.json();
+        entries = parseSpans(data);
+        updateFilters();
+        quickRange.value = "thisWeek";
+        applyQuickRange("thisWeek");
+        refresh();
+      } catch (error) {
+        loadNotice.classList.add("show");
+      }
+    }
+
+    initControls();
+    loadSpans();
+  </script>
+</body>
+
+</html>

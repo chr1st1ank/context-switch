@@ -391,6 +391,7 @@ fi"""
 
 
 # Command modules register themselves on ``main`` when imported.
+from cosw import dashboard as _dashboard  # noqa: E402, F401
 from cosw import history as _history  # noqa: E402, F401
 from cosw import manage as _manage  # noqa: E402, F401
 
