@@ -46,9 +46,9 @@ Versions are never committed: every manifest (`cli/pyproject.toml`,
 `libs/contextswitch-core/pyproject.toml`, the `Cargo.toml`s) keeps a static
 placeholder, and the git tag (`v*.*.*`) is the single source of truth.
 
-`task draft-release` computes the next version with `git-cliff
---bumped-version`, creates the tag, and opens a draft GitHub release.
-Publishing the draft triggers `release.yml`, whose cosw job stamps the
+`task release` computes the next version with `git-cliff
+--bumped-version`, creates the tag, and publishes a GitHub release.
+The published release triggers `release.yml`, whose cosw job stamps the
 workspace checkout via `uv version --package` before `task cli:build` —
 the wheel filename and `contextswitch`'s dist-info METADATA therefore
 carry the release version, and `cosw --version` resolves it from
