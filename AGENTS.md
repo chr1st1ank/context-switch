@@ -94,7 +94,7 @@ task test-rust           # cargo test over the Cargo workspace
 task prek                # run all git hooks against all files (CI's lint job)
 task update-dependencies # upgrade uv.lock, Cargo.lock and hook revisions, then check
 task changelog           # preview unreleased notes
-task draft-release       # tag + draft GitHub release (humans only)
+task release             # tag + publish GitHub release (humans only)
 ```
 
 Tool setup: `mise install` provides python, uv, task, git-cliff, prek and
@@ -123,8 +123,8 @@ See `docs/packaging.md` for how `task cli:build` bundles the unpublished
 Releases are tag-driven: versions are never committed to manifests, which
 keep a static placeholder. `release.yml` stamps the release version into
 the wheel at build time, and the Android job derives
-`versionName`/`versionCode` from the tag. `task draft-release` creates the
-tag and a draft GitHub release; publishing the draft triggers
+`versionName`/`versionCode` from the tag. `task release` creates the
+tag and publishes a GitHub release, which triggers
 `release.yml`.
 
 ## Python environment
@@ -299,7 +299,7 @@ Check open issues before planning new features (`gh issue list`).
 
 ## Do not
 
-- Run `task draft-release` — it pushes tags and creates GitHub releases
+- Run `task release` — it pushes tags and publishes GitHub releases
 - Commit secrets, credentials, or environment-specific values
 - Modify CI security policies or compliance controls to work around failures
 - Add dependencies without checking that they're stable (prefer versions published >7 days ago)

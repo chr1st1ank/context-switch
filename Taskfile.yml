@@ -78,8 +78,8 @@ tasks:
     cmds:
       - git-cliff --unreleased
 
-  draft-release:
-    desc: Determine next version and create a draft GitHub release (humans only — pushes a tag)
+  release:
+    desc: Determine next version and create a GitHub release (humans only — pushes a tag and publishes)
     interactive: true
     cmd: |
       set -e
@@ -102,19 +102,24 @@ tasks:
         echo "No release needed (no relevant commits since last tag)."
         exit 0
       fi
-      NOTES=$(git-cliff --unreleased --tag "$TAG" --strip header 2>/dev/null)
+      NOTES_FILE=$(mktemp --suffix=.md)
+      trap 'rm -f "$NOTES_FILE"' EXIT
+      git-cliff --unreleased --tag "$TAG" --strip header > "$NOTES_FILE"
       echo ""
       echo "Next version: $TAG"
       echo ""
-      echo "$NOTES"
+      cat "$NOTES_FILE"
       echo ""
-      read -p "Create draft release for $TAG? [y/N] " confirm
+      echo "Release notes: file://$NOTES_FILE"
+      echo "Edit and save that file now if needed — it ships as-is."
+      echo ""
+      read -p "Create release for $TAG? This pushes the tag and triggers release.yml. [y/N] " confirm
       if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
         echo "Aborted."
         exit 1
       fi
       git tag -a "$TAG" -m "$TAG"
       git push origin tag "$TAG"
-      gh release create "$TAG" --draft --title "$TAG" --notes "$NOTES"
+      gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
       echo ""
-      echo "Draft release created for $TAG"
+      echo "Release $TAG published — release.yml is now building the artifacts."
