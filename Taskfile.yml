@@ -62,6 +62,7 @@ tasks:
   update-dependencies:
     desc: Upgrade every lock file and hook revision (7-day cooldown)
     cmds:
+      - mise upgrade
       - uv lock --upgrade
       - uv sync
       - cargo update # no cooldown on stable cargo yet

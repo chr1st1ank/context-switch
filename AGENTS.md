@@ -97,8 +97,10 @@ task changelog           # preview unreleased notes
 task release             # tag + publish GitHub release (humans only)
 ```
 
-Tool setup: `mise install` provides python, uv, task, git-cliff, prek and
-Rust; then `prek install` once per clone. `uv` must be ≥ 0.9.17 — older
+Tool setup: `mise install` provides the repo CLIs (uv, task, git-cliff,
+prek, gh, cloc); Python comes from uv (`.python-version`) and Rust from
+rustup (`rust-toolchain.toml`). Then `prek install` once per clone. `uv`
+must be ≥ 0.9.17 — older
 versions cannot parse the relative `exclude-newer = "7 days"` cooldown and
 silently drop it from `uv.lock`.
 
