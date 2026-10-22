@@ -1,7 +1,13 @@
+[settings]
+# Never fall back to third-party asdf plugins (shell scripts cloned from git)
+disable_backends = ["asdf"]
+# 7-day release cooldown — resolves "latest" to a release at least 7 days old
+minimum_release_age = "7d"
+
 [tools]
-python = "3.14"
 uv = "latest"
 task = "latest"
 git-cliff = "latest"
 prek = "latest"
-rust = "stable"
+gh = "latest"
+cloc = "latest"
