@@ -16,15 +16,21 @@ pyo3 = { version = "0.29", features = [
 thiserror = "2"
 age = { version = "0.12", default-features = false }
 getrandom = "0.4"
-minreq = { version = "3", features = ["https"] }
+minreq = { version = "3" }
 hex = "0.4"
 base64 = "0.23"
 sha2 = "0.11"
 toml = "1.1.6"
 
 [features]
+# TLS backends are mutually exclusive: if minreq's `https` feature is enabled,
+# its bundled webpki-roots take precedence over the platform verifier. Python
+# builds (cosw CLI) use the OS trust store so corporate CAs are honored;
+# Android builds must opt into `bundled-certs`.
 default = ["python"]
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "system-certs"]
+system-certs = ["minreq/https-rustls-probe"]
+bundled-certs = ["minreq/https"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

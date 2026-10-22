@@ -9,7 +9,9 @@ name = "contextswitch_uniffi"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-contextswitch-core = { path = "../contextswitch-core", default-features = false }
+contextswitch-core = { path = "../contextswitch-core", default-features = false, features = [
+    "bundled-certs",
+] }
 uniffi = { version = "0.32", features = ["cli"] }
 chrono = "0.4"
 thiserror = "2"
