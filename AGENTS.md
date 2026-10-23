@@ -126,8 +126,7 @@ Releases are tag-driven: versions are never committed to manifests, which
 keep a static placeholder. `release.yml` stamps the release version into
 the wheel at build time, and the Android job derives
 `versionName`/`versionCode` from the tag. `task release` dispatches
-`create-release.yml`, which tags `main` (release notes in the tag
-message) and dispatches `release.yml` on the tag.
+`create-release.yml`, which tags `main` and dispatches `release.yml`.
 
 ## Python environment
 
@@ -247,14 +246,10 @@ Six workflows in `.github/workflows/`:
 
 - **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
   workspace lint/test, Android lint/test/debug APK
-- **create-release.yml**: manual dispatch on `main`; computes the next
-  version with git-cliff, pushes an annotated tag carrying the release
-  notes and dispatches `release.yml` on the tag
-- **release.yml**: dispatched on a `v*.*.*` tag; stamps the tag version,
-  builds the `contextswitch` wheel and the signed Android APK, creates
-  the GitHub release with both attached, and publishes the wheel to PyPI
-  via OIDC trusted publishing (GitHub environment `prod`, which requires
-  the repo owner's approval)
+- **create-release.yml**: manual dispatch; tags `main` and dispatches
+  `release.yml`
+- **release.yml**: runs on the tag; builds the wheel and signed APK,
+  creates the GitHub release and publishes to PyPI (environment `prod`)
 - **test-release.yml**: manual dispatch; stamps a `0.0.1-devN` version
   computed from the newest release on the index and publishes the wheel to
   TestPyPI via OIDC trusted publishing (GitHub environment `test-pypi`)

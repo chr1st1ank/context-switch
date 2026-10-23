@@ -46,13 +46,9 @@ Versions are never committed: every manifest (`cli/pyproject.toml`,
 `libs/contextswitch-core/pyproject.toml`, the `Cargo.toml`s) keeps a static
 placeholder, and the git tag (`v*.*.*`) is the single source of truth.
 
-Releases are cut from GitHub Actions: `task release` (or a manual
-dispatch on `main`) runs `create-release.yml`, which computes the next
-version with `git-cliff --bumped-version`, pushes an annotated tag
-whose message holds the git-cliff release notes, and dispatches
-`release.yml` on the tag (tags pushed with `GITHUB_TOKEN` do not trigger
-workflows; `workflow_dispatch` is the exception). `release.yml`'s cosw
-job stamps the
+`task release` dispatches `create-release.yml`, which tags `main` with
+the next `git-cliff --bumped-version` (release notes in the tag message)
+and dispatches `release.yml` on the tag. Its cosw job stamps the
 workspace checkout via `uv version --package` before `task cli:build` —
 the wheel filename and `contextswitch`'s dist-info METADATA therefore
 carry the release version, and `cosw --version` resolves it from
@@ -65,19 +61,13 @@ contextswitch-core's dist-info.
 it computes the next `0.0.1-devN` version from the newest release on
 TestPyPI's JSON API and publishes the result to TestPyPI via OIDC trusted
 publishing (GitHub environment `test-pypi`). The real `release.yml` folds
-APK signing, creating the GitHub release (notes from the tag, wheel and
-APK attached), and the PyPI publish into a single `publish` job
-(environment `prod`) so a release needs one deployment approval — wheel
-only, since the sdist cannot build the Rust bindings and would install a
-broken package.
+APK signing, GitHub release creation, and the PyPI publish into a single
+`publish` job (environment `prod`) so a release needs one deployment
+approval — wheel only, since the sdist cannot build the Rust bindings and
+would install a broken package.
 
-Access control rests on the `prod` environment, not on the workflows:
-anyone with write access could edit a workflow on a branch, so an
-in-workflow permission check would add nothing. `prod` requires the repo
-owner's approval and only deploys from `v*.*.*` tags, and it holds the
-APK signing secrets and the PyPI trusted-publisher binding. Until it is
-approved only the tag exists: no GitHub release, nothing on PyPI. A
-rejected run leaves the tag behind; delete it before retrying.
+The `prod` approval is the access control: nothing is published before
+it. A rejected run leaves only the tag; delete it before retrying.
 
 ## PyPI metadata
 
