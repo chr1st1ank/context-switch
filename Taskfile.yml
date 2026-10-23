@@ -80,47 +80,7 @@ tasks:
       - git-cliff --unreleased
 
   release:
-    desc: Determine next version and create a GitHub release (humans only — pushes a tag and publishes)
-    interactive: true
-    cmd: |
-      set -e
-      if [ "$(git branch --show-current)" != "main" ]; then
-        echo "Not on main — releases are tagged from main."
-        exit 1
-      fi
-      if [ -n "$(git status --porcelain)" ]; then
-        echo "Working tree is not clean."
-        exit 1
-      fi
-      LATEST=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "")
-      TAG=$(git-cliff --bumped-version 2>/dev/null)
-      if [ -z "$TAG" ]; then
-        echo "No release needed (no relevant commits since last tag)."
-        exit 0
-      fi
-      case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
-      if [ "$TAG" = "$LATEST" ]; then
-        echo "No release needed (no relevant commits since last tag)."
-        exit 0
-      fi
-      NOTES_FILE=$(mktemp --suffix=.md)
-      trap 'rm -f "$NOTES_FILE"' EXIT
-      git-cliff --unreleased --tag "$TAG" --strip header > "$NOTES_FILE"
-      echo ""
-      echo "Next version: $TAG"
-      echo ""
-      cat "$NOTES_FILE"
-      echo ""
-      echo "Release notes: file://$NOTES_FILE"
-      echo "Edit and save that file now if needed — it ships as-is."
-      echo ""
-      read -p "Create release for $TAG? This pushes the tag and triggers release.yml. [y/N] " confirm
-      if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-        echo "Aborted."
-        exit 1
-      fi
-      git tag -a "$TAG" -m "$TAG"
-      git push origin tag "$TAG"
-      gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
-      echo ""
-      echo "Release $TAG published — release.yml is now building the artifacts."
+    desc: Trigger the Create Release workflow on main (humans only — pushes a tag; publishing still needs prod approval)
+    cmds:
+      - gh workflow run create-release.yml --ref main
+      - echo "Dispatched — follow it with 'gh run watch' or on the Actions tab."

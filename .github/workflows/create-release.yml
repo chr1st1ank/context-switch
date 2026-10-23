@@ -1,0 +1,85 @@
+name: Create Release
+
+# Tags main with the next git-cliff version (release notes in the tag
+# message) and dispatches release.yml on the tag. Tags pushed with
+# GITHUB_TOKEN trigger no workflows; workflow_dispatch is the exception.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push tag
+      actions: write # dispatch release.yml
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases are tagged from main (got ${GITHUB_REF})."
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # git-cliff needs the full history and tags
+
+      - name: Compute bumped version
+        id: bump
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --bumped-version
+        env:
+          OUTPUT: ${{ runner.temp }}/version.txt
+
+      - name: Determine tag
+        id: version
+        env:
+          BUMPED: ${{ steps.bump.outputs.content }}
+        run: |
+          latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "")
+          tag=$(echo "$BUMPED" | tr -d '[:space:]')
+          case "$tag" in v*|"") ;; *) tag="v$tag" ;; esac
+          if [ -z "$tag" ] || [ "$tag" = "$latest" ]; then
+            echo "No release needed (no relevant commits since ${latest:-the start})." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected version from git-cliff: $tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        if: steps.version.outputs.tag != ''
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --unreleased --tag ${{ steps.version.outputs.tag }} --strip header
+        env:
+          OUTPUT: ${{ runner.temp }}/notes.md
+
+      # --cleanup=verbatim: the default would strip the "#" headings.
+      - name: Create tag
+        if: steps.version.outputs.tag != ''
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" --cleanup=verbatim -F "$RUNNER_TEMP/notes.md"
+          git push origin "refs/tags/$TAG"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch release.yml
+        if: steps.version.outputs.tag != ''
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Dispatched release.yml on $TAG; approve the prod deployment to publish." | tee -a "$GITHUB_STEP_SUMMARY"

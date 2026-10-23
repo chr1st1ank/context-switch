@@ -46,9 +46,9 @@ Versions are never committed: every manifest (`cli/pyproject.toml`,
 `libs/contextswitch-core/pyproject.toml`, the `Cargo.toml`s) keeps a static
 placeholder, and the git tag (`v*.*.*`) is the single source of truth.
 
-`task release` computes the next version with `git-cliff
---bumped-version`, creates the tag, and publishes a GitHub release.
-The published release triggers `release.yml`, whose cosw job stamps the
+`task release` dispatches `create-release.yml`, which tags `main` with
+the next `git-cliff --bumped-version` (release notes in the tag message)
+and dispatches `release.yml` on the tag. Its cosw job stamps the
 workspace checkout via `uv version --package` before `task cli:build` —
 the wheel filename and `contextswitch`'s dist-info METADATA therefore
 carry the release version, and `cosw --version` resolves it from
@@ -61,10 +61,13 @@ contextswitch-core's dist-info.
 it computes the next `0.0.1-devN` version from the newest release on
 TestPyPI's JSON API and publishes the result to TestPyPI via OIDC trusted
 publishing (GitHub environment `test-pypi`). The real `release.yml` folds
-APK signing, release-asset upload, and the PyPI publish into a single
+APK signing, GitHub release creation, and the PyPI publish into a single
 `publish` job (environment `prod`) so a release needs one deployment
 approval — wheel only, since the sdist cannot build the Rust bindings and
 would install a broken package.
+
+The `prod` approval is the access control: nothing is published before
+it. A rejected run leaves only the tag; delete it before retrying.
 
 ## PyPI metadata
 

@@ -1,12 +1,17 @@
 name: Release
 
+# Dispatched by create-release.yml on an annotated v*.*.* tag whose message
+# holds the release notes. The prod environment only deploys from v*.*.*
+# tags; nothing is public until it is approved.
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
 
 jobs:
   cosw:
@@ -14,6 +19,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require release tag
+        run: |
+          if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+            echo "::error::release.yml must run on a v*.*.* tag (got ${GITHUB_REF})."
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - name: Set up Python
@@ -43,7 +55,7 @@ jobs:
       # workspace checkout so the built wheel carries the release version.
       - name: Stamp version from tag
         run: |
-          v="${{ github.event.release.tag_name }}"
+          v="$TAG"
           uv version --package contextswitch "${v#v}"
           uv version --package contextswitch-core "${v#v}"
 
@@ -105,8 +117,7 @@ jobs:
       - name: Compute version from tag
         id: version
         run: |
-          tag="${{ github.event.release.tag_name }}"
-          v="${tag#v}"
+          v="${TAG#v}"
           IFS=. read -r major minor patch <<< "$v"
           echo "name=$v" >> "$GITHUB_OUTPUT"
           echo "code=$(( 10#$major * 10000 + 10#$minor * 100 + 10#${patch%%-*} ))" >> "$GITHUB_OUTPUT"
@@ -142,8 +153,16 @@ jobs:
           name: cosw-wheel
           path: dist
 
-      - name: Attach artifacts to release
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/contextswitch-*.whl contextswitch-*.apk --clobber
+      # Notes come from the annotated tag; on a re-run the release already
+      # exists and only the assets are replaced.
+      - name: Create GitHub release
+        run: |
+          assets=(dist/contextswitch-*.whl contextswitch-*.apk)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --verify-tag --title "$TAG" --notes-from-tag --latest
+          fi
 
       # Wheel only: the sdist builds without the Rust bindings and would
       # produce a broken install, so it is not published.
