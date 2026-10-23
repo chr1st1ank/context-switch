@@ -1,12 +1,17 @@
 name: Release
 
+# Dispatched by create-release.yml on a v*.*.* tag, which has already
+# created a draft release for it. The prod environment only deploys from
+# v*.*.* tags; the release stays a draft until the publish job finishes.
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
 
 jobs:
   cosw:
@@ -14,6 +19,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require release tag
+        run: |
+          if [[ ! "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+            echo "::error::release.yml must run on a v*.*.* tag (got ${GITHUB_REF})."
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - name: Set up Python
@@ -43,7 +55,7 @@ jobs:
       # workspace checkout so the built wheel carries the release version.
       - name: Stamp version from tag
         run: |
-          v="${{ github.event.release.tag_name }}"
+          v="$TAG"
           uv version --package contextswitch "${v#v}"
           uv version --package contextswitch-core "${v#v}"
 
@@ -57,9 +69,10 @@ jobs:
           path: dist/contextswitch-*.whl
 
   # Single prod-environment job so a release needs one approval. PyPI
-  # publish runs last: it is the only irreversible step (PyPI rejects
-  # re-uploads), so a failed APK build never leaves a published wheel
-  # behind and any earlier failure re-runs cleanly.
+  # publish runs after the asset upload: it is the only irreversible step
+  # (PyPI rejects re-uploads), so a failed APK build never leaves a
+  # published wheel behind and any earlier failure re-runs cleanly. The
+  # draft release is made public only after PyPI succeeded.
   publish:
     needs: cosw
     runs-on: ubuntu-latest
@@ -105,8 +118,7 @@ jobs:
       - name: Compute version from tag
         id: version
         run: |
-          tag="${{ github.event.release.tag_name }}"
-          v="${tag#v}"
+          v="${TAG#v}"
           IFS=. read -r major minor patch <<< "$v"
           echo "name=$v" >> "$GITHUB_OUTPUT"
           echo "code=$(( 10#$major * 10000 + 10#$minor * 100 + 10#${patch%%-*} ))" >> "$GITHUB_OUTPUT"
@@ -143,7 +155,7 @@ jobs:
           path: dist
 
       - name: Attach artifacts to release
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/contextswitch-*.whl contextswitch-*.apk --clobber
+        run: gh release upload "$TAG" dist/contextswitch-*.whl contextswitch-*.apk --clobber
 
       # Wheel only: the sdist builds without the Rust bindings and would
       # produce a broken install, so it is not published.
@@ -151,3 +163,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+
+      - name: Publish GitHub release
+        run: gh release edit "$TAG" --draft=false --latest

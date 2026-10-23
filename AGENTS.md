@@ -59,7 +59,7 @@ context-switch/
 │   └── simulate.py               # Generates realistic sample data via `cosw add`
 ├── .github/
 │   ├── dependabot.yml            # uv, cargo, gradle, actions; 7-day cooldown
-│   └── workflows/                # ci, release, codeql-analysis, pr-title
+│   └── workflows/                # ci, create-release, release, codeql-analysis, pr-title
 ├── CONTEXT.md                    # Domain glossary (domain-modeling format)
 ├── AGENTS.md                     # This file
 ├── README.md                     # Project overview
@@ -94,7 +94,7 @@ task test-rust           # cargo test over the Cargo workspace
 task prek                # run all git hooks against all files (CI's lint job)
 task update-dependencies # upgrade uv.lock, Cargo.lock and hook revisions, then check
 task changelog           # preview unreleased notes
-task release             # tag + publish GitHub release (humans only)
+task release             # dispatch create-release.yml (humans only)
 ```
 
 Tool setup: `mise install` provides the repo CLIs (uv, task, git-cliff,
@@ -125,9 +125,9 @@ See `docs/packaging.md` for how `task cli:build` bundles the unpublished
 Releases are tag-driven: versions are never committed to manifests, which
 keep a static placeholder. `release.yml` stamps the release version into
 the wheel at build time, and the Android job derives
-`versionName`/`versionCode` from the tag. `task release` creates the
-tag and publishes a GitHub release, which triggers
-`release.yml`.
+`versionName`/`versionCode` from the tag. `task release` dispatches
+`create-release.yml`, which tags `main`, creates a draft GitHub release
+and dispatches `release.yml` on the tag.
 
 ## Python environment
 
@@ -243,14 +243,18 @@ Before implementing significant changes, check existing ADRs and consider whethe
 
 ## CI/CD
 
-Five workflows in `.github/workflows/`:
+Six workflows in `.github/workflows/`:
 
 - **ci.yml**: prek hooks, type-check, Python tests with coverage gate, Rust
   workspace lint/test, Android lint/test/debug APK
-- **release.yml**: on a published release, stamps the tag version, builds
-  the `contextswitch` wheel and the signed Android APK, attaches both to
-  the GitHub release, and publishes the wheel to PyPI via OIDC trusted
-  publishing (GitHub environment `prod`)
+- **create-release.yml**: manual dispatch on `main`; computes the next
+  version with git-cliff, pushes the tag, creates a draft GitHub release
+  and dispatches `release.yml` on the tag
+- **release.yml**: dispatched on a `v*.*.*` tag; stamps the tag version,
+  builds the `contextswitch` wheel and the signed Android APK, attaches
+  both to the draft release, publishes the wheel to PyPI via OIDC trusted
+  publishing and then publishes the GitHub release (GitHub environment
+  `prod`, which requires the repo owner's approval)
 - **test-release.yml**: manual dispatch; stamps a `0.0.1-devN` version
   computed from the newest release on the index and publishes the wheel to
   TestPyPI via OIDC trusted publishing (GitHub environment `test-pypi`)
@@ -301,7 +305,7 @@ Check open issues before planning new features (`gh issue list`).
 
 ## Do not
 
-- Run `task release` — it pushes tags and publishes GitHub releases
+- Run `task release` or dispatch `create-release.yml` — they push tags and start a release
 - Commit secrets, credentials, or environment-specific values
 - Modify CI security policies or compliance controls to work around failures
 - Add dependencies without checking that they're stable (prefer versions published >7 days ago)
