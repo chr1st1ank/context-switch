@@ -49,126 +49,129 @@ fun TimerScreen(store: LogbookStore) {
     val combos = usage?.combos.orEmpty()
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (active != null) {
-            var elapsed by remember { mutableLongStateOf(0L) }
-            LaunchedEffect(active.startedAt) {
-                val start = parseTime(active.startedAt).toInstant()
-                while (true) {
-                    elapsed = Duration.between(start, OffsetDateTime.now().toInstant()).seconds
-                    delay(1000)
-                }
-            }
-            val projectName = active.projectId?.let { pid -> snap?.projects?.firstOrNull { it.id == pid }?.name } ?: "(unassigned)"
-            Card(onClick = { editingActive = true }, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text(projectName, style = MaterialTheme.typography.titleLarge, color = projectColor(active.projectId))
-                        Icon(Icons.Filled.Edit, "Edit active span", Modifier.size(18.dp))
-                    }
-                    Text(fmtDuration(elapsed), style = MaterialTheme.typography.displaySmall)
-                    val tagNames = active.tagIds.mapNotNull { tid -> snap?.tags?.firstOrNull { it.id == tid }?.name }
-                    if (tagNames.isNotEmpty()) Text(tagNames.joinToString(" · ", prefix = "+"))
-                    active.description?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { firstLine ->
-                        Text(
-                            firstLine,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-
-        if (combos.isNotEmpty()) {
-            SectionHeader("🕒 Recent")
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                maxLines = RECENT_MAX_ROWS,
-                overflow = FlowRowOverflow.expandIndicator {
-                    EllipsisChip { overflowSection = OverflowSection.RECENT }
-                },
-            ) {
-                combos.forEach { c ->
-                    ComboChip(
-                        c,
-                        selected = projectId == c.projectId && tagIds == c.tagIds,
-                    ) {
-                        projectId = c.projectId
-                        tagIds = c.tagIds
-                    }
-                }
-            }
-        }
-
-        SectionHeader("📁 Project")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            maxLines = PROJECT_MAX_ROWS,
-            overflow = FlowRowOverflow.expandIndicator {
-                EllipsisChip { overflowSection = OverflowSection.PROJECTS }
-            },
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            UnassignedChip(projectId == null) { projectId = null }
-            projects.forEach { p ->
-                ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
-            }
-        }
-
-        if (tags.isNotEmpty()) {
-            SectionHeader("🏷️ Tags")
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                maxLines = TAG_MAX_ROWS,
-                overflow = FlowRowOverflow.expandIndicator {
-                    EllipsisChip { overflowSection = OverflowSection.TAGS }
-                },
-            ) {
-                tags.forEach { t ->
-                    TagChip(t, selected = t.id in tagIds) {
-                        tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+            if (active != null) {
+                var elapsed by remember { mutableLongStateOf(0L) }
+                LaunchedEffect(active.startedAt) {
+                    val start = parseTime(active.startedAt).toInstant()
+                    while (true) {
+                        elapsed = Duration.between(start, OffsetDateTime.now().toInstant()).seconds
+                        delay(1000)
+                    }
+                }
+                val projectName = active.projectId?.let { pid -> snap?.projects?.firstOrNull { it.id == pid }?.name } ?: "(unassigned)"
+                Card(onClick = { editingActive = true }, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(projectName, style = MaterialTheme.typography.titleLarge, color = projectColor(active.projectId))
+                            Icon(Icons.Filled.Edit, "Edit active span", Modifier.size(18.dp))
+                        }
+                        Text(fmtDuration(elapsed), style = MaterialTheme.typography.displaySmall)
+                        val tagNames = active.tagIds.mapNotNull { tid -> snap?.tags?.firstOrNull { it.id == tid }?.name }
+                        if (tagNames.isNotEmpty()) Text(tagNames.joinToString(" · ", prefix = "+"))
+                        active.description?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { firstLine ->
+                            Text(
+                                firstLine,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        overflowSection?.let { section ->
-            AlertDialog(
-                onDismissRequest = { overflowSection = null },
-                title = { Text(section.title) },
-                text = {
-                    FlowRow(
-                        Modifier.verticalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        when (section) {
-                            OverflowSection.RECENT -> combos.forEach { c ->
-                                ComboChip(c, selected = projectId == c.projectId && tagIds == c.tagIds) {
-                                    projectId = c.projectId
-                                    tagIds = c.tagIds
+            if (combos.isNotEmpty()) {
+                SectionHeader("🕒 Recent")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    maxLines = RECENT_MAX_ROWS,
+                    overflow = FlowRowOverflow.expandIndicator {
+                        EllipsisChip { overflowSection = OverflowSection.RECENT }
+                    },
+                ) {
+                    combos.forEach { c ->
+                        ComboChip(
+                            c,
+                            selected = projectId == c.projectId && tagIds == c.tagIds,
+                        ) {
+                            projectId = c.projectId
+                            tagIds = c.tagIds
+                        }
+                    }
+                }
+            }
+
+            SectionHeader("📁 Project")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                maxLines = PROJECT_MAX_ROWS,
+                overflow = FlowRowOverflow.expandIndicator {
+                    EllipsisChip { overflowSection = OverflowSection.PROJECTS }
+                },
+            ) {
+                UnassignedChip(projectId == null) { projectId = null }
+                projects.forEach { p ->
+                    ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
+                }
+            }
+
+            if (tags.isNotEmpty()) {
+                SectionHeader("🏷️ Tags")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    maxLines = TAG_MAX_ROWS,
+                    overflow = FlowRowOverflow.expandIndicator {
+                        EllipsisChip { overflowSection = OverflowSection.TAGS }
+                    },
+                ) {
+                    tags.forEach { t ->
+                        TagChip(t, selected = t.id in tagIds) {
+                            tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+                        }
+                    }
+                }
+            }
+
+            overflowSection?.let { section ->
+                AlertDialog(
+                    onDismissRequest = { overflowSection = null },
+                    title = { Text(section.title) },
+                    text = {
+                        FlowRow(
+                            Modifier.verticalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            when (section) {
+                                OverflowSection.RECENT -> combos.forEach { c ->
+                                    ComboChip(c, selected = projectId == c.projectId && tagIds == c.tagIds) {
+                                        projectId = c.projectId
+                                        tagIds = c.tagIds
+                                    }
                                 }
-                            }
-                            OverflowSection.PROJECTS -> {
-                                UnassignedChip(projectId == null) { projectId = null }
-                                projects.forEach { p ->
-                                    ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
+                                OverflowSection.PROJECTS -> {
+                                    UnassignedChip(projectId == null) { projectId = null }
+                                    projects.forEach { p ->
+                                        ProjectChip(p, selected = projectId == p.id) { projectId = p.id }
+                                    }
                                 }
-                            }
-                            OverflowSection.TAGS -> tags.forEach { t ->
-                                TagChip(t, selected = t.id in tagIds) {
-                                    tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+                                OverflowSection.TAGS -> tags.forEach { t ->
+                                    TagChip(t, selected = t.id in tagIds) {
+                                        tagIds = if (t.id in tagIds) tagIds - t.id else tagIds + t.id
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { overflowSection = null }) { Text("Done") }
-                },
-            )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { overflowSection = null }) { Text("Done") }
+                    },
+                )
+            }
         }
-
-        Spacer(Modifier.weight(1f))
         if (active == null) {
             Button(
                 onClick = { store.start(projectId, tagIds.toList()) },
