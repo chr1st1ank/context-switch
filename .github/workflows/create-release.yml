@@ -1,10 +1,10 @@
 name: Create Release
 
 # Manual entry point for a release. Computes the next version with
-# git-cliff, pushes the tag, creates a *draft* GitHub release and dispatches
-# release.yml on that tag. Nothing becomes public before the prod-environment
-# approval in release.yml: the publish job uploads the artifacts, publishes
-# to PyPI and only then takes the release out of draft.
+# git-cliff, pushes an annotated tag carrying the release notes and
+# dispatches release.yml on that tag. Only the tag exists before the
+# prod-environment approval in release.yml; its publish job creates the
+# GitHub release from the tag message and publishes to PyPI.
 #
 # GITHUB_TOKEN-created releases and tag pushes do not trigger workflows;
 # workflow_dispatch is the exception, hence the explicit dispatch.
@@ -20,7 +20,7 @@ jobs:
   create:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # push tag, create draft release
+      contents: write # push tag
       actions: write # dispatch release.yml
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,7 +53,9 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Create tag and draft release
+      # The tag message holds the release notes (verbatim: the default
+      # cleanup would strip the Markdown "#" headings as comments).
+      - name: Create tag
         if: steps.version.outputs.tag != ''
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -62,11 +64,10 @@ jobs:
           git-cliff --unreleased --tag "$TAG" --strip header > "$notes"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "$TAG"
+          git tag -a "$TAG" --cleanup=verbatim -F "$notes"
           git push origin "refs/tags/$TAG"
-          gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file "$notes"
           {
-            echo "## Draft release $TAG"
+            echo "## Tagged $TAG"
             echo
             cat "$notes"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,8 +1,8 @@
 name: Release
 
-# Dispatched by create-release.yml on a v*.*.* tag, which has already
-# created a draft release for it. The prod environment only deploys from
-# v*.*.* tags; the release stays a draft until the publish job finishes.
+# Dispatched by create-release.yml on an annotated v*.*.* tag whose message
+# holds the release notes. The prod environment only deploys from v*.*.*
+# tags; nothing is public until it is approved.
 on:
   workflow_dispatch:
 
@@ -69,10 +69,9 @@ jobs:
           path: dist/contextswitch-*.whl
 
   # Single prod-environment job so a release needs one approval. PyPI
-  # publish runs after the asset upload: it is the only irreversible step
-  # (PyPI rejects re-uploads), so a failed APK build never leaves a
-  # published wheel behind and any earlier failure re-runs cleanly. The
-  # draft release is made public only after PyPI succeeded.
+  # publish runs last: it is the only irreversible step (PyPI rejects
+  # re-uploads), so a failed APK build never leaves a published wheel
+  # behind and any earlier failure re-runs cleanly.
   publish:
     needs: cosw
     runs-on: ubuntu-latest
@@ -154,8 +153,16 @@ jobs:
           name: cosw-wheel
           path: dist
 
-      - name: Attach artifacts to release
-        run: gh release upload "$TAG" dist/contextswitch-*.whl contextswitch-*.apk --clobber
+      # Notes come from the annotated tag; on a re-run the release already
+      # exists and only the assets are replaced.
+      - name: Create GitHub release
+        run: |
+          assets=(dist/contextswitch-*.whl contextswitch-*.apk)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --verify-tag --title "$TAG" --notes-from-tag --latest
+          fi
 
       # Wheel only: the sdist builds without the Rust bindings and would
       # produce a broken install, so it is not published.
@@ -163,6 +170,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-
-      - name: Publish GitHub release
-        run: gh release edit "$TAG" --draft=false --latest
