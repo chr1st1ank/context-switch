@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Callable
-from datetime import datetime
-from typing import Any, TypeVar
 
 import click
 from contextswitch_core import Logbook, Span
@@ -32,18 +29,9 @@ from cosw.core import (
     tag_names,
     transact,
 )
-from cosw.reporting import (
-    RANGE_SHORTCUTS,
-    Filters,
-    RangeConflictError,
-    UnknownNameError,
-    matching_spans,
-    totals_by,
-    totals_by_day,
-)
+from cosw.filters import build_filters, filter_options, matching
+from cosw.reporting import totals_by, totals_by_day
 from cosw.timeparse import fmt_duration, fmt_local, fmt_time, parse_range_end, utcnow
-
-_F = TypeVar("_F", bound=Callable[..., Any])
 
 
 @main.command()
@@ -224,109 +212,8 @@ def remove(ctx: click.Context, ref: str, force: bool) -> None:
     click.echo(f"Removed {description}")
 
 
-def _matching(
-    logbook: Logbook, filters: Filters, now: datetime
-) -> list[tuple[Span, datetime, datetime]]:
-    """Run the shared span query, translating query errors into CLI errors."""
-    try:
-        return matching_spans(logbook, filters, now)
-    except RangeConflictError as e:
-        raise click.UsageError(str(e)) from e
-    except UnknownNameError as e:
-        raise click.ClickException(str(e)) from e
-    except ValueError as e:
-        raise click.BadParameter(str(e)) from e
-
-
-def _filter_options(command: _F) -> _F:
-    """Attach the shared log/report filter options to a command."""
-    options = [
-        click.option(
-            "--range",
-            "range_",
-            type=click.Choice(list(RANGE_SHORTCUTS)),
-            help="Shortcut for --from: day, week, month, year, or all.",
-        ),
-        click.option("--from", "from_str", metavar="WHEN", help="Range start."),
-        click.option("--to", "to_str", metavar="WHEN", help="Range end (inclusive)."),
-        click.option(
-            "-p",
-            "--project",
-            "projects",
-            multiple=True,
-            help="Only this project.",
-            shell_complete=completers.names("project"),
-        ),
-        click.option(
-            "-T",
-            "--tag",
-            "tags",
-            multiple=True,
-            help="Only spans having all of these tags.",
-            shell_complete=completers.names("tag"),
-        ),
-        click.option(
-            "--client",
-            "clients",
-            multiple=True,
-            metavar="CLIENT",
-            help="Only spans whose project carries this client label.",
-        ),
-        click.option(
-            "--ignore-project",
-            "ignore_projects",
-            multiple=True,
-            help="Exclude this project.",
-            shell_complete=completers.names("project"),
-        ),
-        click.option(
-            "--ignore-tag",
-            "ignore_tags",
-            multiple=True,
-            help="Exclude spans with this tag.",
-            shell_complete=completers.names("tag"),
-        ),
-        click.option(
-            "--ignore-client",
-            "ignore_clients",
-            multiple=True,
-            metavar="CLIENT",
-            help="Exclude spans whose project carries this client label.",
-        ),
-    ]
-    for option in reversed(options):
-        command = option(command)
-    return command
-
-
-def _filters(
-    range_: str | None,
-    from_str: str | None,
-    to_str: str | None,
-    projects: tuple[str, ...],
-    tags: tuple[str, ...],
-    clients: tuple[str, ...],
-    ignore_projects: tuple[str, ...],
-    ignore_tags: tuple[str, ...],
-    ignore_clients: tuple[str, ...],
-    include_current: bool,
-) -> Filters:
-    return Filters(
-        range=range_,
-        from_str=from_str,
-        to_str=to_str,
-        projects=projects,
-        tags=tags,
-        clients=clients,
-        ignore_projects=ignore_projects,
-        ignore_tags=ignore_tags,
-        ignore_clients=ignore_clients,
-        include_current=include_current,
-    )
-
-
 @main.command()
-@_filter_options
+@filter_options
 @click.option("-r", "--reverse", is_flag=True, help="Oldest first.")
 @click.option(
     "-c/-C",
@@ -354,7 +241,7 @@ def log(
     """List recorded spans, newest first."""
     logbook = read_logbook(ctx)
     now = utcnow()
-    filters = _filters(
+    filters = build_filters(
         range_,
         from_str,
         to_str,
@@ -366,7 +253,7 @@ def log(
         ignore_clients,
         current,
     )
-    rows = _matching(logbook, filters, now)
+    rows = matching(logbook, filters, now)
     if not reverse:
         rows.reverse()
     if as_json:
@@ -417,7 +304,7 @@ def _totals_by_client(logbook: Logbook):
 
 
 @main.command()
-@_filter_options
+@filter_options
 @click.option(
     "-c/-C",
     "--current/--no-current",
@@ -451,7 +338,7 @@ def report(
     """Report time totals by project, tag, client, or day."""
     logbook = read_logbook(ctx)
     now = utcnow()
-    filters = _filters(
+    filters = build_filters(
         range_,
         from_str,
         to_str,
@@ -463,7 +350,7 @@ def report(
         ignore_clients,
         current,
     )
-    rows = _matching(logbook, filters, now)
+    rows = matching(logbook, filters, now)
     total = sum((hi - lo).total_seconds() for _, lo, hi in rows)
 
     if by == "day":

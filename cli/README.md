@@ -29,6 +29,10 @@ cosw report --by project --json      # totals, machine-readable
 cosw report --by client              # totals per project client
 cosw report --by day --from 2026-09-01 --to 2026-09-11
 
+cosw export --range month            # timesheet (markdown) for this month
+cosw export --client nasa --name "Jane Doe" -o stundenzettel.pdf --lang de
+cosw export --columns date,start,end,hours,project,client,tags,description
+
 cosw projects                        # list; also: add|rename|client|archive|unarchive
 cosw projects add apollo11 --client "NASA"
 cosw projects client apollo11 "ESA"  # set; --clear removes the label

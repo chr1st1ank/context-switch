@@ -10,7 +10,10 @@ authors = [
 ]
 keywords = ["time-tracking", "timesheet", "cli"]
 requires-python = ">=3.14"
-dependencies = ["click>=8.1.0"]
+dependencies = [
+    "click>=8.1.0",
+    "fpdf2>=2.8",
+]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
