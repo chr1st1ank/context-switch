@@ -1,5 +1,6 @@
 """Tests for the ``cosw export`` timesheet command."""
 
+import base64
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -206,8 +207,75 @@ def test_export_writes_pdf(invoke, tmp_path: Path) -> None:
     assert out.read_bytes().startswith(b"%PDF")
 
 
-def test_export_pdf_latin1_sanitizes(invoke, tmp_path: Path) -> None:
-    """Characters outside latin-1 degrade to '?' instead of crashing fpdf."""
+def test_export_signature_blank_lines(invoke, tmp_path: Path) -> None:
+    _seed(invoke)
+    result = invoke("export", "--signature", "-o", str(tmp_path / "sheet.pdf"))
+    assert result.exit_code == 0
+
+
+def test_export_signature_image(invoke, tmp_path: Path) -> None:
+    _seed(invoke)
+    png = tmp_path / "sig.png"
+    png.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+            "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+    )
+    result = invoke("export", "--signature-image", str(png), "-o", str(tmp_path / "s.pdf"))
+    assert result.exit_code == 0
+    assert (tmp_path / "s.pdf").read_bytes().startswith(b"%PDF")
+
+
+def test_prepare_signature_crops_and_finds_baseline(tmp_path: Path) -> None:
+    from cosw.timesheet import _prepare_signature
+    from PIL import Image
+
+    path = tmp_path / "sig.png"
+    img = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    img.paste((0, 0, 255, 255), (10, 20, 90, 50))
+    img.paste((0, 0, 255, 255), (50, 50, 53, 80))
+    img.save(path)
+    cropped, baseline = _prepare_signature(path)
+    assert cropped.size == (80, 60)
+    assert baseline == pytest.approx(0.5, abs=0.05)
+
+    white = Image.new("RGB", (10, 10), "white")
+    white.paste((0, 0, 0), (2, 2, 6, 5))
+    white.save(path)
+    cropped, baseline = _prepare_signature(path)
+    assert cropped.size == (4, 3)
+    assert baseline == 1.0
+
+    Image.new("RGBA", (6, 6), (0, 0, 0, 0)).save(path)
+    cropped, baseline = _prepare_signature(path)
+    assert (cropped.size, baseline) == ((6, 6), 1.0)
+
+
+def test_export_signature_options_conflict(invoke, tmp_path: Path) -> None:
+    _seed(invoke)
+    png = tmp_path / "sig.png"
+    png.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+            "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+    )
+    result = invoke(
+        "export", "--signature", "--signature-image", str(png), "-o", str(tmp_path / "s.pdf")
+    )
+    assert result.exit_code == 2
+
+
+def test_export_signature_markdown_rejected(invoke) -> None:
+    _seed(invoke)
+    result = invoke("export", "--signature")
+    assert result.exit_code == 2
+    assert "only supported for PDF" in result.output
+
+
+def test_export_pdf_unicode_text(invoke, tmp_path: Path) -> None:
+    """Unicode text (umlauts, dashes, emoji) renders without crashing fpdf."""
     invoke(
         "add",
         "apollo11",
@@ -216,10 +284,11 @@ def test_export_pdf_latin1_sanitizes(invoke, tmp_path: Path) -> None:
         "--to",
         "2026-09-08T09:00:00Z",
         "-d",
-        "emoji 🚀 and — dash",
+        "Größe, Übung — test 🚀",
     )
     result = invoke("export", "-o", str(tmp_path / "sheet.pdf"))
     assert result.exit_code == 0
+    assert (tmp_path / "sheet.pdf").read_bytes().startswith(b"%PDF")
 
 
 def test_export_pdf_requires_output(invoke) -> None:
@@ -242,6 +311,24 @@ def test_export_format_flag_overrides_extension(invoke, tmp_path: Path) -> None:
     result = invoke("export", "--format", "markdown", "-o", str(out))
     assert result.exit_code == 0
     assert out.read_text().startswith("# Timesheet")
+
+
+def test_export_pdf_multiple_pages(invoke, tmp_path: Path) -> None:
+    """A table spanning pages still renders (repeated headings, footers)."""
+    for day in range(1, 45):
+        date = f"2026-09-{day:02d}" if day <= 30 else f"2026-10-{day - 30:02d}"
+        invoke(
+            "add",
+            "apollo11",
+            "--from",
+            f"{date}T08:00:00Z",
+            "--to",
+            f"{date}T09:00:00Z",
+        )
+    out = tmp_path / "sheet.pdf"
+    result = invoke("export", "-o", str(out))
+    assert result.exit_code == 0
+    assert out.read_bytes().startswith(b"%PDF")
 
 
 @pytest.mark.parametrize("suffix", [".md", ".pdf"])

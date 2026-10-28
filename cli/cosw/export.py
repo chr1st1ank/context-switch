@@ -82,6 +82,18 @@ def _resolve_format(fmt: str | None, output: Path | None) -> str:
     help="Output format (default: markdown, or inferred from -o).",
 )
 @click.option(
+    "--signature",
+    "signature_lines",
+    is_flag=True,
+    help="Draw blank signature lines (place/date + signature) below the totals.",
+)
+@click.option(
+    "--signature-image",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    metavar="PNG",
+    help="Draw the signature lines with this image embedded at the signature.",
+)
+@click.option(
     "-o",
     "--output",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -105,6 +117,8 @@ def export(
     columns_str: str | None,
     lang: str,
     fmt: str | None,
+    signature_lines: bool,
+    signature_image: Path | None,
     output: Path | None,
 ) -> None:
     """Export a standalone timesheet (markdown to stdout, PDF via -o)."""
@@ -112,6 +126,10 @@ def export(
     fmt = _resolve_format(fmt, output)
     if fmt == "pdf" and output is None:
         raise click.UsageError("PDF output requires -o FILE")
+    if signature_lines and signature_image is not None:
+        raise click.UsageError("use either --signature or --signature-image")
+    if fmt == "markdown" and (signature_lines or signature_image is not None):
+        raise click.UsageError("--signature/--signature-image are only supported for PDF output")
     logbook = read_logbook(ctx)
     now = utcnow()
     filters = build_filters(
@@ -140,6 +158,8 @@ def export(
         period_from=lo.astimezone().date() if lo is not None else None,
         period_to=hi.astimezone().date() if hi is not None else None,
         now=now,
+        signature_lines=signature_lines or signature_image is not None,
+        signature_image=signature_image,
     )
     if fmt == "pdf":
         assert output is not None

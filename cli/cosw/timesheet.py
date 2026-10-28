@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from contextswitch_core import Logbook, Span
 
@@ -39,6 +39,8 @@ _STRINGS: dict[str, dict[str, Any]] = {
         "generated": "Generated",
         "totals": "Totals",
         "total": "Total",
+        "page": "Page",
+        "signature": "Signature",
         "headings": {
             "date": "Date",
             "start": "Start",
@@ -58,6 +60,8 @@ _STRINGS: dict[str, dict[str, Any]] = {
         "generated": "Erstellt am",
         "totals": "Summen",
         "total": "Gesamt",
+        "page": "Seite",
+        "signature": "Unterschrift",
         "headings": {
             "date": "Datum",
             "start": "Beginn",
@@ -102,6 +106,8 @@ class Timesheet:
     rows: list[Row]
     subtotals: list[tuple[str, float]]
     total_seconds: float
+    signature_lines: bool = False
+    signature_image: Path | None = None
 
 
 def _project_name(logbook: Logbook, span: Span) -> str | None:
@@ -122,6 +128,8 @@ def build_timesheet(
     period_from: date | None,
     period_to: date | None,
     now: datetime,
+    signature_lines: bool = False,
+    signature_image: Path | None = None,
 ) -> Timesheet:
     """Assemble a Timesheet from range-clipped spans (as ``matching_spans`` returns).
 
@@ -175,6 +183,8 @@ def build_timesheet(
         rows=rows,
         subtotals=sorted(subtotal_seconds.items(), key=lambda kv: (-kv[1], kv[0].casefold())),
         total_seconds=sum(subtotal_seconds.values()),
+        signature_lines=signature_lines,
+        signature_image=signature_image,
     )
 
 
@@ -262,7 +272,7 @@ def render_markdown(sheet: Timesheet) -> str:
     return "\n".join(lines) + "\n"
 
 
-_PDF_TRANSLATE = str.maketrans({"—": "-", "–": "-", "…": "..."})
+_FONT_DIR = Path(__file__).parent / "assets" / "fonts"
 _PDF_WEIGHTS = {
     "date": 22,
     "start": 14,
@@ -274,64 +284,128 @@ _PDF_WEIGHTS = {
     "description": 60,
     "id": 18,
 }
+_PDF_ALIGN = {"date": "CENTER", "start": "CENTER", "end": "CENTER", "hours": "RIGHT"}
+
+_SIGNATURE_H = 18
+_SIGNATURE_MAX_W = 80
+_BASELINE_DENSITY = 0.3
+
+_INK = (30, 30, 30)
+_GRAY = (110, 110, 110)
+_RULE = (185, 185, 185)
+_FILL = (246, 246, 246)
+_FILL_DARK = (232, 232, 232)
 
 
-def _pdf_text(text: str) -> str:
-    """Make text safe for the PDF core fonts (WinAnsi, roughly latin-1)."""
-    return text.translate(_PDF_TRANSLATE).encode("latin-1", "replace").decode("latin-1")
+def _table_style() -> dict[str, Any]:
+    """Booktabs-style look for the main PDF table."""
+    from fpdf.enums import TableBordersLayout, TableCellFillMode
+    from fpdf.fonts import FontFace
+
+    return {
+        "borders_layout": TableBordersLayout.SINGLE_TOP_LINE,
+        "headings_style": FontFace(emphasis="BOLD"),
+        "cell_fill_color": _FILL,
+        "cell_fill_mode": TableCellFillMode.EVEN_ROWS,
+        "padding": (1.3, 2.4),
+    }
+
+
+def _prepare_signature(path: Path) -> tuple[Any, float]:
+    """Crop the signature to its ink and locate its baseline.
+
+    Returns the image and the baseline as a fraction of its height from the top.
+    The baseline is the last row whose ink density is still a sizeable share of
+    the densest row; sparser rows below it are descenders (the tail of a "g").
+    """
+    from PIL import Image, ImageChops
+
+    img = Image.open(path).convert("RGBA")
+    flat = Image.alpha_composite(Image.new("RGBA", img.size, (255, 255, 255, 255)), img)
+    ink = ImageChops.invert(flat.convert("L"))
+    bbox = ink.point(lambda v: 255 if v > 16 else 0).getbbox()
+    if bbox is None:
+        return img, 1.0
+    img, ink = img.crop(bbox), ink.crop(bbox)
+    height = ink.height
+    column = ink.resize((1, height), Image.Resampling.BOX)
+    rows = [float(column.getpixel((0, y))) for y in range(height)]  # ty: ignore[invalid-argument-type]
+    window = max(1, height // 20)
+    smooth = [
+        sum(rows[max(0, y - window) : y + window + 1])
+        / len(rows[max(0, y - window) : y + window + 1])
+        for y in range(height)
+    ]
+    threshold = _BASELINE_DENSITY * max(smooth)
+    baseline = max(y for y, density in enumerate(smooth) if density >= threshold)
+    return img, (baseline + 1) / height
 
 
 def render_pdf(sheet: Timesheet, path: Path) -> None:
     """Render the timesheet as an A4 PDF document."""
     from fpdf import FPDF
-    from fpdf.fonts import FontFace
 
     strings = _STRINGS[sheet.lang]
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=15)
+
+    class SheetPDF(FPDF):
+        """Adds the page-number footer on every page."""
+
+        @override
+        def footer(self) -> None:
+            self.set_y(-16)
+            self.set_font("carlito", "I", 9)
+            self.set_text_color(*_GRAY)
+            self.cell(0, 6, f"{strings['page']} {self.page_no()}/{{nb}}", align="R")
+
+    pdf = SheetPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(20, 18, 20)
+    pdf.set_auto_page_break(auto=True, margin=22)
+    for style, filename in (("", "Regular"), ("B", "Bold"), ("I", "Italic")):
+        pdf.add_font("carlito", style, str(_FONT_DIR / f"Carlito-{filename}.ttf"))
+    pdf.set_title(strings["title"])
+    pdf.set_author(sheet.name or "context-switch")
+    pdf.set_creator("cosw export")
+    pdf.set_lang("de-DE" if sheet.lang == "de" else "en-US")
     pdf.add_page()
 
-    pdf.set_font("helvetica", style="B", size=16)
-    pdf.cell(0, 10, strings["title"], new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", size=11)
-    pdf.cell(
-        0,
-        7,
-        f"{strings['name']}: {_pdf_text(sheet.name or '')}",
-        new_x="LMARGIN",
-        new_y="NEXT",
-    )
+    pdf.set_font("carlito", "B", 22)
+    pdf.set_text_color(*_INK)
+    pdf.cell(0, 13, strings["title"], new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    pdf.set_font("carlito", "", 10.5)
+    pdf.set_text_color(*_GRAY)
+    generated = f"{strings['generated']}: {_fmt_date(sheet.generated, sheet.lang)}"
+    pdf.cell(0, 6, generated, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
     period = (
-        f"{_fmt_date(sheet.period_from, sheet.lang)} - {_fmt_date(sheet.period_to, sheet.lang)}"
+        f"{_fmt_date(sheet.period_from, sheet.lang)} – {_fmt_date(sheet.period_to, sheet.lang)}"
     )
-    pdf.cell(0, 7, f"{strings['period']}: {period}", new_x="LMARGIN", new_y="NEXT")
+    info = [(strings["name"], sheet.name or ""), (strings["period"], period)]
     if sheet.client is not None:
-        pdf.cell(
-            0,
-            7,
-            f"{strings['headings']['client']}: {_pdf_text(sheet.client)}",
-            new_x="LMARGIN",
-            new_y="NEXT",
-        )
-    pdf.cell(
-        0,
-        7,
-        f"{strings['generated']}: {_fmt_date(sheet.generated, sheet.lang)}",
-        new_x="LMARGIN",
-        new_y="NEXT",
-    )
-    pdf.ln(4)
+        info.append((strings["headings"]["client"], sheet.client))
+    for label, value in info:
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(26, 6, f"{label}:")
+        pdf.set_text_color(*_INK)
+        pdf.cell(0, 6, value, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(8)
 
     usable = pdf.w - pdf.l_margin - pdf.r_margin
     widths = tuple(_PDF_WEIGHTS[c] for c in sheet.columns)
-    aligns = ["RIGHT" if c == "hours" else "LEFT" for c in sheet.columns]
+    aligns = tuple(_PDF_ALIGN.get(c, "LEFT") for c in sheet.columns)
 
-    pdf.set_font(size=9)
+    pdf.set_font("carlito", "", 10)
+    pdf.set_text_color(*_INK)
+    pdf.set_draw_color(*_RULE)
+    pdf.set_line_width(0.15)
     with pdf.table(
         col_widths=widths,
-        text_align=tuple(aligns),
-        headings_style=FontFace(emphasis="BOLD"),
+        text_align=aligns,
         width=usable,
+        **_table_style(),
     ) as table:
         header = table.row()
         for column in sheet.columns:
@@ -339,27 +413,71 @@ def render_pdf(sheet: Timesheet, path: Path) -> None:
         for sheet_row in sheet.rows:
             pdf_row = table.row()
             for column in sheet.columns:
-                pdf_row.cell(_pdf_text(_cell(sheet_row, column, sheet.lang)))
+                pdf_row.cell(_cell(sheet_row, column, sheet.lang))
 
-    pdf.ln(6)
-    pdf.set_font("helvetica", style="B", size=12)
-    pdf.cell(0, 8, strings["totals"], new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font(size=9)
+    # Totals block aligned with the table's right edge, kept on one page.
+    from fpdf.enums import Align, TableBordersLayout
+    from fpdf.fonts import FontFace
+
+    block_w = 80
+    estimate = 14 + (len(sheet.subtotals) + 2) * 7
+    if pdf.get_y() + estimate > pdf.h - pdf.b_margin:
+        pdf.add_page()
+    pdf.ln(8)
+    pdf.set_font("carlito", "B", 12)
+    pdf.set_text_color(*_INK)
+    pdf.set_x(pdf.w - pdf.r_margin - block_w)
+    pdf.cell(block_w, 7, strings["totals"], new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+    pdf.set_font("carlito", "", 10)
     with pdf.table(
-        col_widths=(6, 1),
+        borders_layout=TableBordersLayout.SINGLE_TOP_LINE,
+        col_widths=(4, 1.4),
         text_align=("LEFT", "RIGHT"),
         headings_style=FontFace(emphasis="BOLD"),
-        width=usable,
+        padding=(1.2, 2.4),
+        width=block_w,
+        align=Align.R,
     ) as table:
         header = table.row()
         header.cell(strings["headings"]["project"])
         header.cell(strings["headings"]["hours"])
         for label, seconds in sheet.subtotals:
             pdf_row = table.row()
-            pdf_row.cell(_pdf_text(label))
+            pdf_row.cell(label)
             pdf_row.cell(_fmt_hours(seconds, sheet.lang))
         total_row = table.row()
-        total_row.cell(strings["total"], style=FontFace(emphasis="BOLD"))
-        total_row.cell(_fmt_hours(sheet.total_seconds, sheet.lang), style=FontFace(emphasis="BOLD"))
+        emphasis = FontFace(emphasis="BOLD", fill_color=_FILL_DARK)
+        total_row.cell(strings["total"], style=emphasis)
+        total_row.cell(_fmt_hours(sheet.total_seconds, sheet.lang), style=emphasis)
+
+    if sheet.signature_lines:
+        gap = 34 if sheet.signature_image is not None else 18
+        if pdf.get_y() + gap + 10 > pdf.h - pdf.b_margin:
+            pdf.add_page()
+        pdf.ln(gap)
+        y = pdf.get_y()
+        pdf.set_draw_color(120, 120, 120)
+        pdf.set_line_width(0.2)
+        right_x = pdf.w - pdf.r_margin - 60
+        pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
+        pdf.line(right_x, y, right_x + 60, y)
+        if sheet.signature_image is not None:
+            # With an embedded signature the date is the creation date.
+            pdf.set_font("carlito", "", 10)
+            pdf.set_text_color(*_INK)
+            pdf.text(pdf.l_margin, y - 1.5, _fmt_date(sheet.generated, sheet.lang))
+            # The baseline sits on the line; descenders cross it.
+            image, baseline = _prepare_signature(sheet.signature_image)
+            width = min(_SIGNATURE_H * image.width / image.height, _SIGNATURE_MAX_W)
+            height = width * image.height / image.width
+            x = min(right_x, pdf.w - pdf.r_margin - width)
+            pdf.image(image, x=x, y=y - height * baseline, w=width, h=height)
+        pdf.set_y(y + 1.5)
+        pdf.set_font("carlito", "", 9)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(60, 5, strings["headings"]["date"])
+        pdf.set_x(right_x)
+        pdf.cell(60, 5, strings["signature"])
 
     pdf.output(str(path))
