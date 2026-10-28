@@ -130,7 +130,7 @@ the wheel at build time, and the Android job derives
 
 ## Python environment
 
-- **Python version**: 3.14 (pinned in `.python-version`)
+- **Python version**: 3.15 (pinned in `.python-version`)
 - **Package manager**: `uv` with workspace at the root
 - **Single lockfile**: `uv.lock` at the root covers all Python components
 - **Lint/format**: `ruff check` and `ruff format`

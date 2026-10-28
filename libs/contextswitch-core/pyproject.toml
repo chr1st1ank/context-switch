@@ -7,7 +7,7 @@ name = "contextswitch-core"
 version = "0.1.0"
 description = "Shared domain model and storage provider interface for context-switch (Rust with Python bindings)"
 license = "Apache-2.0"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = []
 
 [dependency-groups]

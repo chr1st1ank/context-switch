@@ -4,7 +4,7 @@ A single-user, multi-device time tracking system with synchronized storage.
 
 [![CI](https://github.com/chr1st1ank/context-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/chr1st1ank/context-switch/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/chr1st1ank/context-switch/actions/workflows/codeql-analysis.yml)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.15+](https://img.shields.io/badge/python-3.15+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![prek](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json)](https://github.com/j178/prek)
 
@@ -173,7 +173,7 @@ See `CONTEXT.md` for the complete domain language.
 
 ### Prerequisites
 
-- Python 3.14+
+- Python 3.15+
 - Rust (stable, installed via `rustup`)
 - `uv` (installed via `mise`)
 - `task` (installed via `mise`)
@@ -205,7 +205,7 @@ context-switch/
 
 ### Code style
 
-- **Python**: Python 3.14, `ruff` for lint/format, `ty` for type-checking
+- **Python**: Python 3.15, `ruff` for lint/format, `ty` for type-checking
 - **Rust**: Stable, `cargo fmt` for formatting, `cargo clippy` for linting
 - **Testing**: `pytest` for Python, `cargo test` for Rust; 95% coverage gate for libraries
 - **Commits**: Conventional Commits for semantic versioning
