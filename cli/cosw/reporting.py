@@ -7,7 +7,7 @@ click errors with the same user-facing text.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 
@@ -147,6 +147,17 @@ def totals_by(
     return totals
 
 
+def day_segments(lo: datetime, hi: datetime) -> Iterator[tuple[datetime, datetime]]:
+    """Split a clipped span into segments per local date, at local midnight."""
+    cursor = lo
+    while cursor < hi:
+        day = cursor.astimezone().date()
+        next_midnight = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
+        end = min(hi, next_midnight)
+        yield cursor, end
+        cursor = end
+
+
 def totals_by_day(
     logbook: Logbook, rows: list[tuple[Span, datetime, datetime]]
 ) -> dict[str, dict[str, float]]:
@@ -157,12 +168,8 @@ def totals_by_day(
     days: dict[str, dict[str, float]] = {}
     for span, lo, hi in rows:
         name = project_name(logbook, span)
-        cursor = lo
-        while cursor < hi:
-            day = cursor.astimezone().date()
-            next_midnight = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
-            end = min(hi, next_midnight)
-            bucket = days.setdefault(day.isoformat(), {})
-            bucket[name] = bucket.get(name, 0.0) + (end - cursor).total_seconds()
-            cursor = end
+        for seg_lo, seg_hi in day_segments(lo, hi):
+            day = seg_lo.astimezone().date().isoformat()
+            bucket = days.setdefault(day, {})
+            bucket[name] = bucket.get(name, 0.0) + (seg_hi - seg_lo).total_seconds()
     return days
