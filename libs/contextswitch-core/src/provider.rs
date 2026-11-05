@@ -94,6 +94,35 @@ impl GenericProvider {
     fn invalidate_head(&self) {
         *self.head.lock().unwrap() = None;
     }
+
+    /// Re-encrypt the stored logbook under `new_passphrase`.
+    ///
+    /// Opens the blob with this provider's current passphrase and writes it
+    /// back sealed under the new one, conditioned on the ETag that was read,
+    /// so a concurrent commit fails with [`StorageError::Conflict`] instead
+    /// of being overwritten. The logbook content and revision are unchanged.
+    /// This provider keeps its old passphrase; open a new provider with
+    /// `new_passphrase` afterwards.
+    pub fn rekey(&self, new_passphrase: &str) -> Result<(), StorageError> {
+        let passphrase = self.passphrase.as_deref().unwrap_or("");
+        let (bytes, etag) = timed("blob.get", || self.blob_store.get())?
+            .ok_or_else(|| StorageError::Corrupt("no logbook to rekey".to_string()))?;
+        let plaintext = timed("cipher.open", || {
+            self.cipher
+                .open(&bytes, passphrase)
+                .map_err(StorageError::from)
+        })?;
+        let sealed = timed("cipher.seal", || {
+            self.cipher
+                .seal(&plaintext, new_passphrase)
+                .map_err(StorageError::from)
+        })?;
+        self.invalidate_head();
+        timed("blob.put", || {
+            self.blob_store.put(&sealed, Precondition::IfMatch(etag))
+        })
+        .map(|_| ())
+    }
 }
 
 impl StorageProvider for GenericProvider {

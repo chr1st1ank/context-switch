@@ -28,6 +28,7 @@ from cosw.core import (
     describe,
     description_option,
     echo_created,
+    get_provider,
     parse_classification,
     parse_dt,
     read_logbook,
@@ -336,6 +337,75 @@ def decrypt(file: Path, passphrase: str | None, passphrase_command: str | None) 
         click.echo(plaintext)
     except (StorageError, ValueError) as e:
         raise click.ClickException(f"decryption failed: {e}") from e
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write ``text`` to a new file readable only by the current user."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+@main.command("rotate-passphrase")
+@click.option(
+    "--new-passphrase-command",
+    help="Command to run to retrieve the new passphrase. Otherwise "
+    "$COSW_NEW_PASSPHRASE is used, or you are prompted (twice).",
+)
+@click.option("--dry-run", is_flag=True, help="Verify the current passphrase; change nothing.")
+@click.pass_context
+def rotate_passphrase(
+    ctx: click.Context, new_passphrase_command: str | None, dry_run: bool
+) -> None:
+    """Re-encrypt the remote logbook under a new passphrase.
+
+    The current passphrase comes from the config (passphrase_command) or a
+    prompt. Before anything is changed, the decrypted logbook is saved as
+    an UNENCRYPTED JSON backup in the data directory (mode 0600). Other
+    devices need the new passphrase afterwards. Old object versions in a
+    versioned bucket remain readable with the old passphrase.
+    """
+    cfg = ctx.obj["config"]
+    assert isinstance(cfg, Config)
+    if cfg.provider != "s3":
+        raise click.ClickException("rotate-passphrase requires the 's3' storage provider")
+    provider = get_provider(ctx)
+    try:
+        logbook = provider.read().logbook
+    except StorageError as e:
+        raise click.ClickException(str(e)) from e
+    if dry_run:
+        click.echo("current passphrase verified; dry run, nothing changed")
+        return
+
+    env_new = os.environ.get("COSW_NEW_PASSPHRASE")
+    if new_passphrase_command is not None:
+        new_passphrase = run_passphrase_command(new_passphrase_command)
+    elif env_new:
+        new_passphrase = env_new
+    else:
+        new_passphrase = click.prompt(
+            "Enter new passphrase", hide_input=True, confirmation_prompt=True
+        )
+    if not new_passphrase:
+        raise click.ClickException("new passphrase must not be empty")
+
+    stamp = utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    backup = default_data_file().parent / "backups" / f"logbook-{stamp}.json"
+    try:
+        _write_private(backup, logbook.to_json())
+    except OSError as e:
+        raise click.ClickException(f"could not write backup, nothing changed: {e}") from e
+    click.echo(f"backup written to {backup} (unencrypted; delete once verified)")
+
+    try:
+        provider.rotate_passphrase(new_passphrase)
+    except StorageError as e:
+        raise click.ClickException(f"rotation failed: {e}") from e
+    click.echo("passphrase rotated; update passphrase_command and other devices")
 
 
 COMPLETION_PROGRAMS = ("cosw", "contextswitch")

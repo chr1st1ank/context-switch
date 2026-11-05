@@ -100,6 +100,49 @@ fn wrong_passphrase_fails_decryption() {
     ));
 }
 
+fn provider_with_project(
+    blob_store: Arc<InMemoryBlobStore>,
+    cipher: Arc<EnvelopeCipher>,
+    passphrase: &str,
+) -> GenericProvider {
+    let provider = GenericProvider::new(blob_store, cipher, Some(passphrase.to_string()));
+    let snap = provider.read().unwrap();
+    let mut logbook = snap.logbook.clone();
+    logbook.add_project("p1", None, at(0)).unwrap();
+    provider.commit(logbook, &snap.version).unwrap();
+    provider
+}
+
+#[test]
+fn rekey_switches_passphrase_and_preserves_data() {
+    let blob_store = Arc::new(InMemoryBlobStore::new());
+    let cipher = Arc::new(EnvelopeCipher::with_work_factor(10));
+    let old = provider_with_project(blob_store.clone(), cipher.clone(), "old");
+    let before = old.read().unwrap();
+
+    old.rekey("new").unwrap();
+
+    let new = GenericProvider::new(blob_store.clone(), cipher.clone(), Some("new".to_string()));
+    let after = new.read().unwrap();
+    assert_eq!(after.version, before.version);
+    assert_eq!(after.logbook.projects.len(), 1);
+
+    let stale = GenericProvider::new(blob_store, cipher, Some("old".to_string()));
+    assert!(matches!(stale.read(), Err(StorageError::DecryptionFailed)));
+}
+
+#[test]
+fn rekey_with_wrong_current_passphrase_fails() {
+    let blob_store = Arc::new(InMemoryBlobStore::new());
+    let cipher = Arc::new(EnvelopeCipher::with_work_factor(10));
+    provider_with_project(blob_store.clone(), cipher.clone(), "old");
+    let wrong = GenericProvider::new(blob_store, cipher, Some("wrong".to_string()));
+    assert!(matches!(
+        wrong.rekey("new"),
+        Err(StorageError::DecryptionFailed)
+    ));
+}
+
 #[test]
 fn tampered_data_fails_decryption() {
     let blob_store = Arc::new(InMemoryBlobStore::new());

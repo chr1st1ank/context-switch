@@ -183,6 +183,10 @@ class S3Provider:
         use_path_style: bool = False,
         profile: str | None = None,
     ) -> S3Provider: ...
+    def rotate_passphrase(self, new_passphrase: str) -> None:
+        """Re-encrypt the stored logbook under ``new_passphrase`` with a
+        conditional write; raises StorageError on conflict or a wrong
+        current passphrase. This provider keeps the old passphrase."""
     def read(self) -> StorageSnapshot:
         """Read the canonical logbook and its current version."""
     def commit(self, logbook: Logbook, expected_version: str) -> str:

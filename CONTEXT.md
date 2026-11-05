@@ -75,7 +75,7 @@ The logbook's monotonically increasing write counter, used as the opaque version
 _Avoid_: version (ambiguous with schema version), generation
 
 **Master key**:
-The random symmetric key that encrypts a logbook's plaintext. It is never derived from the passphrase directly; instead it is generated independently and then wrapped (encrypted) under a key derived from the passphrase, so the passphrase can rotate without re-encrypting history.
+Superseded by ADR-0011: the `age` envelope now derives its file key from the passphrase via scrypt, so there is no separately wrapped master key. Rotating the passphrase re-encrypts the (single) logbook blob (`cosw rotate-passphrase`).
 _Avoid_: encryption key (ambiguous with the passphrase-derived wrapping key)
 
 **Pending offline action**:
