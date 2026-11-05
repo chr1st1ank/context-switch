@@ -314,6 +314,11 @@ impl S3Provider {
         self.location_url.clone()
     }
 
+    /// Re-encrypt the stored logbook under `new_passphrase` (conditional write).
+    fn rotate_passphrase(&self, new_passphrase: &str) -> PyResult<()> {
+        Ok(self.inner.rekey(new_passphrase)?)
+    }
+
     #[pyo3(name = "read")]
     fn py_read(&self) -> PyResult<StorageSnapshot> {
         Ok(<Self as StorageProvider>::read(self)?)

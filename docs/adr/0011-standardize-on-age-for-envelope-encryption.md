@@ -103,3 +103,15 @@ audited, higher-level cryptography library.
 - [x] Truncated / malformed header fails with `StorageError::Corrupt`.
 - [x] Committed known-answer vector decrypts to expected plaintext (`known_answer_envelope_decrypts_to_expected_plaintext`).
 - [x] All Python bindings and `cosw decrypt` pass tests.
+
+## Addendum: passphrase rotation
+
+Because the passphrase derives the file key directly, rotation re-encrypts
+the single blob. `GenericProvider::rekey` opens the blob with the current
+passphrase, seals it under the new one and writes it back with an `If-Match`
+on the ETag it read, so a concurrent commit yields `Conflict` rather than a
+lost update; content and revision are unchanged. `cosw rotate-passphrase`
+(s3 provider only) first saves the decrypted logbook as an unencrypted
+`0600` JSON backup under `$XDG_DATA_HOME/context-switch/backups/` and aborts
+if that fails. Other devices must be given the new passphrase; older object
+versions in a versioned bucket stay readable with the old passphrase.

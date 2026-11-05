@@ -145,4 +145,4 @@ For remote storage, client-side envelope encryption is mandatory, not optional (
 
 - Native JSON schema details and migration policy.
 - Conflict export format and retention policy.
-- Passphrase rotation's home in the provider contract (logbook-layer operation vs. crypto-layer operation driven by the client).
+- Passphrase rotation is resolved (ADR-0011 addendum): `cosw rotate-passphrase` re-encrypts the single blob via `GenericProvider::rekey` with a conditional write, after saving an unencrypted local backup.
