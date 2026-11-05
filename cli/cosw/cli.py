@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 from click.core import ParameterSource
 from click.shell_completion import ShellComplete, get_completion_class
-from contextswitch_core import Logbook, StorageError, decrypt_envelope
+from contextswitch_core import Logbook, S3Provider, StorageError, decrypt_envelope
 
 from cosw import __version__, completers
 from cosw.config import (
@@ -372,7 +372,7 @@ def rotate_passphrase(
     assert isinstance(cfg, Config)
     if cfg.provider != "s3":
         raise click.ClickException("rotate-passphrase requires the 's3' storage provider")
-    provider = get_provider(ctx)
+    provider = cast(S3Provider, get_provider(ctx))
     try:
         logbook = provider.read().logbook
     except StorageError as e:
@@ -384,7 +384,7 @@ def rotate_passphrase(
     env_new = os.environ.get("COSW_NEW_PASSPHRASE")
     if new_passphrase_command is not None:
         new_passphrase = run_passphrase_command(new_passphrase_command)
-    elif env_new:
+    elif env_new is not None:
         new_passphrase = env_new
     else:
         new_passphrase = click.prompt(
