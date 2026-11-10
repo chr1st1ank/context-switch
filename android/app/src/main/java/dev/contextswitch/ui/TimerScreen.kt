@@ -196,7 +196,7 @@ fun TimerScreen(store: LogbookStore) {
                     snap = snap,
                     span = active,
                     onDismiss = { editingActive = false },
-                    onSave = { start, stop, pid, tids, description ->
+                    onSave = { start, stop, pid, tids, description, clientProject ->
                         store.editSpan(
                             active.id,
                             start,
@@ -204,6 +204,7 @@ fun TimerScreen(store: LogbookStore) {
                             tids,
                             projectEdit(active.projectId, pid),
                             description,
+                            clientProject,
                         )
                         editingActive = false
                     },

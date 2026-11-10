@@ -203,7 +203,8 @@ def resume(
     """Start a copy of a previous span, typically after a break.
 
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
-    most recent span. Project, tags and description are copied.
+    most recent span. Project, tags, description and client project override
+    are copied.
     """
     at = parse_dt(at_str) if at_str is not None else utcnow()
 
@@ -220,6 +221,8 @@ def resume(
         assert active is not None
         text = span_description if span_description is not None else source.description
         apply_description(logbook, active.id, text, at)
+        if source.client_project is not None:
+            logbook.set_span_client_project(active.id, source.client_project, at)
         return describe(logbook, active)
 
     description = transact(ctx, mutate)

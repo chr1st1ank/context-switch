@@ -20,8 +20,9 @@ use uuid::Uuid;
 use crate::exceptions;
 
 /// The only schema version this library writes. Older logbooks are upgraded
-/// on read by [`Logbook::migrate`]; see ADR-0013.
-pub const SCHEMA_VERSION: u32 = 2;
+/// on read by [`Logbook::migrate`]; see ADR-0013 (v1 → v2, span
+/// descriptions) and ADR-0014 (v2 → v3, client project).
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Longest span description, counted in Unicode scalar values.
 pub const MAX_DESCRIPTION_CHARS: usize = 1000;
@@ -110,6 +111,10 @@ pub struct Project {
     /// the project has no client; absent keys in older logbooks read as
     /// `None` too, so this stays schema version 1.
     pub client: Option<String>,
+    /// Optional identifier of this project on the client side; spans
+    /// inherit it unless they override it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_project: Option<String>,
     /// Archived projects are hidden from pickers but keep their history.
     pub archived: bool,
     pub created_at: DateTime<Utc>,
@@ -129,6 +134,7 @@ impl Project {
             id: Uuid::new_v4(),
             name: name.into(),
             client: normalize_client(client),
+            client_project: None,
             archived: false,
             created_at: at,
             updated_at: at,
@@ -161,6 +167,11 @@ impl Project {
     }
 
     #[getter]
+    fn client_project(&self) -> Option<String> {
+        self.client_project.clone()
+    }
+
+    #[getter]
     fn archived(&self) -> bool {
         self.archived
     }
@@ -177,8 +188,8 @@ impl Project {
 
     fn __repr__(&self) -> String {
         format!(
-            "Project(id={}, name={:?}, client={:?}, archived={})",
-            self.id, self.name, self.client, self.archived
+            "Project(id={}, name={:?}, client={:?}, client_project={:?}, archived={})",
+            self.id, self.name, self.client, self.client_project, self.archived
         )
     }
 }
@@ -264,6 +275,10 @@ pub struct Span {
     /// Optional free-text note on what was done; never blank when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Optional per-span override of the project's client project; `None`
+    /// inherits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_project: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -290,6 +305,7 @@ impl Span {
             project_id,
             tag_ids,
             description: None,
+            client_project: None,
             created_at: at,
             updated_at: at,
         }
@@ -348,6 +364,11 @@ impl Span {
     #[getter]
     fn description(&self) -> Option<String> {
         self.description.clone()
+    }
+
+    #[getter]
+    fn client_project(&self) -> Option<String> {
+        self.client_project.clone()
     }
 
     #[getter(is_active)]
@@ -429,12 +450,13 @@ impl Logbook {
 
     /// Upgrade a logbook read from storage to [`SCHEMA_VERSION`].
     ///
-    /// Pure and one-way: v1 logbooks (no span descriptions) carry over
-    /// unchanged apart from the version stamp; anything newer than this
-    /// library understands is rejected rather than silently rewritten.
+    /// Pure and one-way: v1 logbooks (no span descriptions) and v2 logbooks
+    /// (no client project, ADR-0014) carry over unchanged apart from the
+    /// version stamp; anything newer than this library understands is
+    /// rejected rather than silently rewritten.
     pub fn migrate(mut self) -> Result<Self, DomainError> {
         match self.schema_version {
-            1 => self.schema_version = 2,
+            1 | 2 => self.schema_version = 3,
             SCHEMA_VERSION => {}
             other => return Err(DomainError::UnsupportedSchemaVersion(other)),
         }
@@ -748,6 +770,33 @@ impl Logbook {
         Ok(())
     }
 
+    /// Set or clear (`None`) a span's client project override. The text is
+    /// trimmed and blank becomes `None`, which inherits the project's value.
+    pub fn set_span_client_project(
+        &mut self,
+        span_id: Uuid,
+        client_project: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let span = self
+            .spans
+            .get_mut(&span_id)
+            .ok_or(DomainError::SpanNotFound(span_id))?;
+        span.client_project = normalize_client(client_project);
+        span.updated_at = at;
+        Ok(())
+    }
+
+    /// A span's effective client project: its own override, else its
+    /// project's current value, else `None`.
+    pub fn effective_client_project<'a>(&'a self, span: &'a Span) -> Option<&'a str> {
+        span.client_project.as_deref().or_else(|| {
+            span.project_id
+                .and_then(|id| self.projects.get(&id))
+                .and_then(|p| p.client_project.as_deref())
+        })
+    }
+
     /// Clear a span's project assignment. The time stays visible as
     /// unassigned for later classification.
     pub fn unassign_span(&mut self, span_id: Uuid, at: DateTime<Utc>) -> Result<(), DomainError> {
@@ -806,6 +855,23 @@ impl Logbook {
             .get_mut(&project_id)
             .ok_or(DomainError::ProjectNotFound(project_id))?;
         project.client = normalize_client(client);
+        project.updated_at = at;
+        Ok(())
+    }
+
+    /// Set or clear (`None`) a project's client project. Blank strings are
+    /// normalized to `None`; spans without an override follow the change.
+    pub fn set_project_client_project(
+        &mut self,
+        project_id: Uuid,
+        client_project: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let project = self
+            .projects
+            .get_mut(&project_id)
+            .ok_or(DomainError::ProjectNotFound(project_id))?;
+        project.client_project = normalize_client(client_project);
         project.updated_at = at;
         Ok(())
     }
@@ -1027,6 +1093,23 @@ impl Logbook {
         Ok(self.set_span_description(parse_uuid(&span_id)?, description, at)?)
     }
 
+    #[pyo3(name = "set_span_client_project", signature = (span_id, client_project, at))]
+    fn py_set_span_client_project(
+        &mut self,
+        span_id: String,
+        client_project: Option<String>,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.set_span_client_project(parse_uuid(&span_id)?, client_project, at)?)
+    }
+
+    #[pyo3(name = "effective_client_project")]
+    fn py_effective_client_project(&self, span_id: String) -> PyResult<Option<String>> {
+        let id = parse_uuid(&span_id)?;
+        let span = self.spans.get(&id).ok_or(DomainError::SpanNotFound(id))?;
+        Ok(self.effective_client_project(span).map(str::to_string))
+    }
+
     #[pyo3(name = "unassign_span")]
     fn py_unassign_span(&mut self, span_id: String, at: DateTime<Utc>) -> PyResult<()> {
         Ok(self.unassign_span(parse_uuid(&span_id)?, at)?)
@@ -1060,6 +1143,16 @@ impl Logbook {
         at: DateTime<Utc>,
     ) -> PyResult<()> {
         Ok(self.set_project_client(parse_uuid(&project_id)?, client, at)?)
+    }
+
+    #[pyo3(name = "set_project_client_project", signature = (project_id, client_project, at))]
+    fn py_set_project_client_project(
+        &mut self,
+        project_id: String,
+        client_project: Option<String>,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.set_project_client_project(parse_uuid(&project_id)?, client_project, at)?)
     }
 
     #[pyo3(name = "set_project_archived")]
@@ -1546,6 +1639,7 @@ mod tests {
             .unwrap();
         let project = logbook.projects.values().next().unwrap();
         assert_eq!(project.client, None);
+        assert_eq!(project.client_project, None);
         logbook.validate().unwrap();
     }
 
@@ -1624,7 +1718,7 @@ mod tests {
         let json = serde_json::to_string(&logbook).unwrap();
         let parsed: Logbook = serde_json::from_str(&json).unwrap();
         assert_eq!(logbook, parsed);
-        assert!(json.contains("\"schema_version\":2"));
+        assert!(json.contains("\"schema_version\":3"));
         assert!(json.contains("\"active_span_id\""));
     }
 
@@ -1703,8 +1797,24 @@ mod tests {
     }
 
     #[test]
+    fn migrate_upgrades_v2() {
+        let mut logbook = Logbook::new();
+        let id = logbook.start_timer(at(0), None, vec![]).unwrap();
+        logbook.schema_version = 2;
+        assert!(matches!(
+            logbook.validate(),
+            Err(DomainError::UnsupportedSchemaVersion(2))
+        ));
+        let migrated = logbook.clone().migrate().unwrap();
+        assert_eq!(migrated.schema_version, SCHEMA_VERSION);
+        assert_eq!(migrated.spans, logbook.spans);
+        assert_eq!(migrated.active_span_id, Some(id));
+        migrated.validate().unwrap();
+    }
+
+    #[test]
     fn migrate_rejects_unknown_versions() {
-        for version in [0, 3, 99] {
+        for version in [0, 4, 99] {
             let mut logbook = Logbook::new();
             logbook.schema_version = version;
             assert!(matches!(
@@ -1712,5 +1822,76 @@ mod tests {
                 Err(DomainError::UnsupportedSchemaVersion(v)) if v == version
             ));
         }
+    }
+
+    #[test]
+    fn client_project_inherits_and_overrides() {
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("apollo11", None, at(0)).unwrap();
+        let span = logbook
+            .add_span(at(0), at(10), Some(project), vec![], at(0))
+            .unwrap();
+        let effective = |lb: &Logbook| {
+            lb.effective_client_project(&lb.spans[&span])
+                .map(str::to_string)
+        };
+
+        logbook
+            .set_project_client_project(project, Some("AP-11".to_string()), at(1))
+            .unwrap();
+        assert_eq!(logbook.projects[&project].updated_at, at(1));
+        assert_eq!(effective(&logbook).as_deref(), Some("AP-11"));
+
+        logbook
+            .set_span_client_project(span, Some("X-1".to_string()), at(2))
+            .unwrap();
+        assert_eq!(logbook.spans[&span].updated_at, at(2));
+        assert_eq!(effective(&logbook).as_deref(), Some("X-1"));
+        assert_eq!(logbook.spans[&span].project_id, Some(project));
+
+        logbook.set_span_client_project(span, None, at(3)).unwrap();
+        assert_eq!(effective(&logbook).as_deref(), Some("AP-11"));
+
+        logbook
+            .set_project_client_project(project, Some("AP-12".to_string()), at(4))
+            .unwrap();
+        assert_eq!(effective(&logbook).as_deref(), Some("AP-12"));
+
+        let unassigned = logbook
+            .add_span(at(20), at(30), None, vec![], at(0))
+            .unwrap();
+        assert_eq!(
+            logbook.effective_client_project(&logbook.spans[&unassigned]),
+            None
+        );
+
+        logbook
+            .set_span_client_project(span, Some("   ".to_string()), at(5))
+            .unwrap();
+        assert_eq!(logbook.spans[&span].client_project, None);
+    }
+
+    #[test]
+    fn client_project_omitted_when_absent() {
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
+        logbook
+            .add_span(at(0), at(10), Some(project), vec![], at(0))
+            .unwrap();
+        let json = serde_json::to_string(&logbook).unwrap();
+        assert!(!json.contains("\"client_project\""));
+    }
+
+    #[test]
+    fn client_project_setters_reject_unknown_ids() {
+        let mut logbook = Logbook::new();
+        assert!(matches!(
+            logbook.set_project_client_project(Uuid::new_v4(), Some("x".to_string()), at(0)),
+            Err(DomainError::ProjectNotFound(_))
+        ));
+        assert!(matches!(
+            logbook.set_span_client_project(Uuid::new_v4(), Some("x".to_string()), at(0)),
+            Err(DomainError::SpanNotFound(_))
+        ));
     }
 }

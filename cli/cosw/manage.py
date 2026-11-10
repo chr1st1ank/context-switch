@@ -25,9 +25,19 @@ def _require(logbook: Logbook, kind: Kind, name: str) -> Project | Tag:
     return require_project(logbook, name) if kind == "project" else require_tag(logbook, name)
 
 
-def _add(logbook: Logbook, kind: Kind, name: str, at, client: str | None = None) -> str:
+def _add(
+    logbook: Logbook,
+    kind: Kind,
+    name: str,
+    at,
+    client: str | None = None,
+    client_project: str | None = None,
+) -> str:
     if kind == "project":
-        return logbook.add_project(name, at, client)
+        pid = logbook.add_project(name, at, client)
+        if client_project is not None:
+            logbook.set_project_client_project(pid, client_project, at)
+        return pid
     return logbook.add_tag(name, at)
 
 
@@ -59,6 +69,7 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
             }
             if isinstance(i, Project):
                 entry["client"] = i.client
+                entry["client_project"] = i.client_project
             payload.append(entry)
         click.echo(json.dumps(payload))
         return
@@ -67,8 +78,11 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
         return
     for item in items:
         notes = []
-        if isinstance(item, Project) and item.client is not None:
-            notes.append(item.client)
+        if isinstance(item, Project):
+            if item.client is not None:
+                notes.append(item.client)
+            if item.client_project is not None:
+                notes.append(f"client project {item.client_project}")
         if item.archived:
             notes.append("archived")
         suffix = f" ({', '.join(notes)})" if notes else ""
@@ -76,14 +90,25 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
 
 
 def _register(group: click.Group, kind: Kind) -> None:
-    def add_impl(ctx: click.Context, name: str, client: str | None = None) -> None:
+    def add_impl(
+        ctx: click.Context,
+        name: str,
+        client: str | None = None,
+        client_project: str | None = None,
+    ) -> None:
         """Create a new entry."""
-        transact(ctx, lambda logbook: _add(logbook, kind, name, utcnow(), client))
+        transact(ctx, lambda logbook: _add(logbook, kind, name, utcnow(), client, client_project))
         click.echo(f"created {kind} {name}")
 
     command: Callable[..., Any] = click.pass_context(add_impl)
     command = click.argument("name")(command)
     if kind == "project":
+        command = click.option(
+            "--client-project",
+            "client_project",
+            metavar="ID",
+            help="Optional client-side project identifier.",
+        )(command)
         command = click.option(
             "--client", "client", metavar="CLIENT", help="Optional client label."
         )(command)
@@ -176,3 +201,29 @@ def project_client_cmd(ctx: click.Context, name: str, value: str | None, clear: 
         click.echo(f"cleared client of project {name}")
     else:
         click.echo(f"project {name} client set to {new_client}")
+
+
+@projects.command("client-project")
+@click.argument("name", shell_complete=completers.names("project"))
+@click.argument("value", required=False, metavar="ID")
+@click.option("--clear", is_flag=True, help="Remove the client project.")
+@click.pass_context
+def project_client_project_cmd(
+    ctx: click.Context, name: str, value: str | None, clear: bool
+) -> None:
+    """Set or clear a project's client project identifier."""
+    if clear and value is not None:
+        raise click.UsageError("--clear takes no ID value")
+    if value is None and not clear:
+        raise click.UsageError("missing ID (or pass --clear)")
+    new_value = None if clear else value
+
+    def mutate(logbook: Logbook) -> None:
+        project = require_project(logbook, name)
+        logbook.set_project_client_project(project.id, new_value, utcnow())
+
+    transact(ctx, mutate)
+    if clear:
+        click.echo(f"cleared client project of project {name}")
+    else:
+        click.echo(f"project {name} client project set to {new_value}")

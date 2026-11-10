@@ -289,6 +289,11 @@ def client_name(logbook: Logbook, span: Span) -> str | None:
     return project.client if project is not None else None
 
 
+def client_project_name(logbook: Logbook, span: Span) -> str | None:
+    """The span's effective client project: its override, else its project's."""
+    return logbook.effective_client_project(span.id)
+
+
 def tag_names(logbook: Logbook, span: Span) -> list[str]:
     names = []
     for tag_id in span.tag_ids:
@@ -334,6 +339,7 @@ def span_to_json(logbook: Logbook, span: Span, now: datetime) -> dict[str, Any]:
         "active": span.is_active,
         "project": project_name(logbook, span),
         "client": client_name(logbook, span),
+        "client_project": client_project_name(logbook, span),
         "tags": tag_names(logbook, span),
         "description": span.description,
         "seconds": int((end - span.started_at).total_seconds()),

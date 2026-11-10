@@ -32,9 +32,11 @@ fun ManageScreen(store: LogbookStore) {
                         name = p.name,
                         color = projectColor(p.id),
                         client = p.client,
+                        clientProject = p.clientProject,
                         archived = p.archived,
                         onRename = { store.renameProject(p.id, it) },
                         onSetClient = { store.setProjectClient(p.id, it) },
+                        onSetClientProject = { store.setProjectClientProject(p.id, it) },
                         onArchive = { store.setProjectArchived(p.id, !p.archived) },
                     )
                 }
@@ -57,6 +59,7 @@ fun ManageScreen(store: LogbookStore) {
     if (showAdd) {
         var name by remember { mutableStateOf("") }
         var client by remember { mutableStateOf("") }
+        var clientProject by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAdd = false },
             title = { Text(if (tab == 0) "New project" else "New tag") },
@@ -75,6 +78,12 @@ fun ManageScreen(store: LogbookStore) {
                             singleLine = true,
                             label = { Text("Client (optional)") },
                         )
+                        OutlinedTextField(
+                            value = clientProject,
+                            onValueChange = { clientProject = it },
+                            singleLine = true,
+                            label = { Text("Client project (optional)") },
+                        )
                     }
                 }
             },
@@ -82,7 +91,11 @@ fun ManageScreen(store: LogbookStore) {
                 TextButton(onClick = {
                     if (name.isNotBlank()) {
                         if (tab == 0) {
-                            store.addProject(name.trim(), client.trim().ifBlank { null })
+                            store.addProject(
+                                name.trim(),
+                                client.trim().ifBlank { null },
+                                clientProject.trim().ifBlank { null },
+                            )
                         } else {
                             store.addTag(name.trim())
                         }
@@ -100,9 +113,11 @@ private fun ManageRow(
     name: String,
     color: Color? = null,
     client: String? = null,
+    clientProject: String? = null,
     archived: Boolean,
     onRename: (String) -> Unit,
     onSetClient: ((String?) -> Unit)? = null,
+    onSetClientProject: ((String?) -> Unit)? = null,
     onArchive: () -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
@@ -111,7 +126,9 @@ private fun ManageRow(
             { Box(Modifier.size(12.dp).background(c, CircleShape)) }
         },
         headlineContent = { Text(if (archived) "$name (archived)" else name) },
-        supportingContent = client?.let { c -> { Text(c) } },
+        supportingContent = listOfNotNull(client, clientProject).joinToString(" · ")
+            .takeIf { it.isNotEmpty() }
+            ?.let { s -> { Text(s) } },
         trailingContent = {
             Row {
                 TextButton(onClick = { editing = true }) { Text(if (onSetClient != null) "Edit" else "Rename") }
@@ -123,6 +140,7 @@ private fun ManageRow(
     if (editing) {
         var newName by remember { mutableStateOf(name) }
         var newClient by remember { mutableStateOf(client.orEmpty()) }
+        var newClientProject by remember { mutableStateOf(clientProject.orEmpty()) }
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text(if (onSetClient != null) "Edit project" else "Rename") },
@@ -142,6 +160,14 @@ private fun ManageRow(
                             label = { Text("Client") },
                         )
                     }
+                    if (onSetClientProject != null) {
+                        OutlinedTextField(
+                            value = newClientProject,
+                            onValueChange = { newClientProject = it },
+                            singleLine = true,
+                            label = { Text("Client project") },
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -151,6 +177,10 @@ private fun ManageRow(
                         onSetClient?.let { setClient ->
                             val c = newClient.trim().ifBlank { null }
                             if (c != client) setClient(c)
+                        }
+                        onSetClientProject?.let { setClientProject ->
+                            val cp = newClientProject.trim().ifBlank { null }
+                            if (cp != clientProject) setClientProject(cp)
                         }
                     }
                     editing = false

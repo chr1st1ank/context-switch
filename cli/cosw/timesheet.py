@@ -14,7 +14,7 @@ from typing import Any, override
 
 from contextswitch_core import Logbook, Span
 
-from cosw.core import client_name, tag_names
+from cosw.core import client_name, client_project_name, tag_names
 from cosw.reporting import day_segments
 
 COLUMNS = (
@@ -24,6 +24,7 @@ COLUMNS = (
     "hours",
     "project",
     "client",
+    "client_project",
     "tags",
     "description",
     "id",
@@ -48,6 +49,7 @@ _STRINGS: dict[str, dict[str, Any]] = {
             "hours": "Hours",
             "project": "Project",
             "client": "Client",
+            "client_project": "Client project",
             "tags": "Tags",
             "description": "Description",
             "id": "ID",
@@ -69,6 +71,7 @@ _STRINGS: dict[str, dict[str, Any]] = {
             "hours": "Stunden",
             "project": "Projekt",
             "client": "Kunde",
+            "client_project": "Kundenprojekt",
             "tags": "Tags",
             "description": "Beschreibung",
             "id": "ID",
@@ -87,6 +90,7 @@ class Row:
     seconds: float
     project: str | None
     client: str | None
+    client_project: str | None
     tags: list[str]
     description: str | None
     span_id: str
@@ -106,6 +110,7 @@ class Timesheet:
     rows: list[Row]
     subtotals: list[tuple[str, float]]
     total_seconds: float
+    group_heading: str
     signature_lines: bool = False
     signature_image: Path | None = None
 
@@ -130,21 +135,27 @@ def build_timesheet(
     now: datetime,
     signature_lines: bool = False,
     signature_image: Path | None = None,
+    by_client_project: bool = False,
 ) -> Timesheet:
     """Assemble a Timesheet from range-clipped spans (as ``matching_spans`` returns).
 
     Spans are split at local midnight so every row belongs to one date.
     ``period_from``/``period_to`` default to the data's own bounds when the
     filter left that side open. ``client`` is only shown when the filter
-    already narrowed the data to a single client.
+    already narrowed the data to a single client. ``by_client_project``
+    groups totals by effective client project; spans without one share a
+    single group with an empty label.
     """
     rows: list[Row] = []
     subtotal_seconds: dict[str, float] = {}
     for span, lo, hi in matches:
         project = _project_name(logbook, span)
         span_client = client_name(logbook, span)
+        span_client_project = client_project_name(logbook, span)
         tags = tag_names(logbook, span)
-        if project is None:
+        if by_client_project:
+            label = span_client_project or ""
+        elif project is None:
             label = ""
         elif span_client is not None:
             label = f"{project} ({span_client})"
@@ -160,6 +171,7 @@ def build_timesheet(
                     seconds=seconds,
                     project=project,
                     client=span_client,
+                    client_project=span_client_project,
                     tags=tags,
                     description=span.description,
                     span_id=span.id[:8],
@@ -183,6 +195,7 @@ def build_timesheet(
         rows=rows,
         subtotals=sorted(subtotal_seconds.items(), key=lambda kv: (-kv[1], kv[0].casefold())),
         total_seconds=sum(subtotal_seconds.values()),
+        group_heading="client_project" if by_client_project else "project",
         signature_lines=signature_lines,
         signature_image=signature_image,
     )
@@ -225,6 +238,8 @@ def _cell(row: Row, column: str, lang: str) -> str:
         return row.project or "—"
     if column == "client":
         return row.client or "—"
+    if column == "client_project":
+        return row.client_project or "—"
     if column == "tags":
         return ", ".join(row.tags)
     if column == "description":
@@ -263,7 +278,7 @@ def render_markdown(sheet: Timesheet) -> str:
         "",
         f"## {strings['totals']}",
         "",
-        f"| {strings['headings']['project']} | {strings['headings']['hours']} |",
+        f"| {strings['headings'][sheet.group_heading]} | {strings['headings']['hours']} |",
         "|---|---:|",
     ]
     for label, seconds in sheet.subtotals:
@@ -280,6 +295,7 @@ _PDF_WEIGHTS = {
     "hours": 16,
     "project": 32,
     "client": 30,
+    "client_project": 30,
     "tags": 28,
     "description": 60,
     "id": 18,
@@ -440,7 +456,7 @@ def render_pdf(sheet: Timesheet, path: Path) -> None:
         align=Align.R,
     ) as table:
         header = table.row()
-        header.cell(strings["headings"]["project"])
+        header.cell(strings["headings"][sheet.group_heading])
         header.cell(strings["headings"]["hours"])
         for label, seconds in sheet.subtotals:
             pdf_row = table.row()

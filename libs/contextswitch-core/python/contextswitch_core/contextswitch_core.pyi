@@ -14,6 +14,7 @@ class Project:
     id: str
     name: str
     client: str | None
+    client_project: str | None
     archived: bool
     created_at: datetime
     updated_at: datetime
@@ -40,6 +41,7 @@ class Span:
     project_id: str | None
     tag_ids: list[str]
     description: str | None
+    client_project: str | None
     created_at: datetime
     updated_at: datetime
     is_active: bool
@@ -124,6 +126,12 @@ class Logbook:
         The text is trimmed and blank becomes ``None``; more than 1000
         characters raises DomainError.
         """
+    def set_span_client_project(
+        self, span_id: str, client_project: str | None, at: datetime
+    ) -> None:
+        """Set or clear (``None``) a span's client project override; ``None`` inherits."""
+    def effective_client_project(self, span_id: str) -> str | None:
+        """The span's override, else its project's client project, else ``None``."""
     def unassign_span(self, span_id: str, at: datetime) -> None:
         """Clear a span's project assignment."""
     def add_project(self, name: str, at: datetime, client: str | None = None) -> str:
@@ -131,6 +139,10 @@ class Logbook:
     def rename_project(self, project_id: str, name: str, at: datetime) -> None: ...
     def set_project_client(self, project_id: str, client: str | None, at: datetime) -> None:
         """Set or clear (``None``) a project's client label."""
+    def set_project_client_project(
+        self, project_id: str, client_project: str | None, at: datetime
+    ) -> None:
+        """Set or clear (``None``) a project's client project."""
     def set_project_archived(self, project_id: str, archived: bool, at: datetime) -> None: ...
     def add_tag(self, name: str, at: datetime) -> str:
         """Create a tag; names are case-insensitively unique."""

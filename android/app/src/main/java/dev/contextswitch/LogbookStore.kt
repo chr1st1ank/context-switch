@@ -96,8 +96,14 @@ class LogbookStore(private val context: Context) {
     fun switchTo(projectId: String?, tagIds: List<String>) = runOp { `switch`(projectId, tagIds) }
     fun switchAt(at: String, projectId: String?, tagIds: List<String>) = runOp { switchAt(at, projectId, tagIds) }
     fun cancel() = runOp { cancel() }
-    fun addSpan(start: String, stop: String, projectId: String?, tagIds: List<String>, description: String) =
-        runOp { addSpan(start, stop, projectId, tagIds, description) }
+    fun addSpan(
+        start: String,
+        stop: String,
+        projectId: String?,
+        tagIds: List<String>,
+        description: String,
+        clientProject: String,
+    ) = runOp { addSpan(start, stop, projectId, tagIds, description, clientProject) }
     fun editSpan(
         spanId: String,
         start: String?,
@@ -105,10 +111,14 @@ class LogbookStore(private val context: Context) {
         tagIds: List<String>?,
         project: ProjectEdit,
         description: String?,
-    ) = runOp { editSpan(spanId, start, stop, tagIds, project, description) }
+        clientProject: String?,
+    ) = runOp { editSpan(spanId, start, stop, tagIds, project, description, clientProject) }
     fun removeSpan(spanId: String) = runOp { removeSpan(spanId) }
-    fun addProject(name: String, client: String? = null) = runOp { addProject(name, client) }
+    fun addProject(name: String, client: String? = null, clientProject: String? = null) =
+        runOp { addProject(name, client, clientProject) }
     fun setProjectClient(id: String, client: String?) = runOp { setProjectClient(id, client) }
+    fun setProjectClientProject(id: String, clientProject: String?) =
+        runOp { setProjectClientProject(id, clientProject) }
     fun renameProject(id: String, name: String) = runOp { renameProject(id, name) }
     fun setProjectArchived(id: String, archived: Boolean) = runOp { setProjectArchived(id, archived) }
     fun addTag(name: String) = runOp { addTag(name) }

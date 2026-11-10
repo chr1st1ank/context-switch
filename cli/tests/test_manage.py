@@ -107,6 +107,38 @@ def test_projects_json_includes_client(invoke) -> None:
     assert by_name["personal"]["client"] is None
 
 
+def test_projects_client_project_set_and_clear(invoke) -> None:
+    assert invoke("projects", "add", "apollo11", "--client-project", "AP-11").exit_code == 0
+
+    def client_project() -> object:
+        (entry,) = json.loads(invoke("projects", "-j").output)
+        return entry["client_project"]
+
+    assert client_project() == "AP-11"
+    result = invoke("projects", "client-project", "apollo11", "--clear")
+    assert result.exit_code == 0
+    assert "cleared client project of project apollo11" in result.output
+    assert client_project() is None
+    result = invoke("projects", "client-project", "apollo11", "AP-12")
+    assert "project apollo11 client project set to AP-12" in result.output
+    assert client_project() == "AP-12"
+
+
+def test_projects_list_shows_client_project(invoke) -> None:
+    invoke("projects", "add", "apollo11", "--client", "NASA", "--client-project", "AP-11")
+    assert "apollo11 (NASA, client project AP-11)" in invoke("projects").output
+
+
+def test_projects_client_project_errors(invoke) -> None:
+    invoke("projects", "add", "apollo11")
+    result = invoke("projects", "client-project", "apollo11")
+    assert result.exit_code == 2
+    assert "missing ID" in result.output
+    result = invoke("projects", "client-project", "apollo11", "AP-11", "--clear")
+    assert result.exit_code == 2
+    assert "--clear takes no ID value" in result.output
+
+
 def test_tags_lifecycle(invoke) -> None:
     assert "No tags" in invoke("tags").output
     invoke("tags", "add", "focus")

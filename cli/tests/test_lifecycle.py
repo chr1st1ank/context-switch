@@ -238,6 +238,16 @@ def test_resume_with_description_overrides_copy(invoke) -> None:
     assert descriptions == ["second", "first"]
 
 
+def test_resume_copies_client_project_override(invoke) -> None:
+    invoke("start", "a", "--at", "2026-09-10T08:00:00Z")
+    invoke("stop", "--at", "2026-09-10T09:00:00Z")
+    invoke("edit", "-1", "--client-project", "X-1")
+    invoke("projects", "client-project", "a", "AP-1")
+    invoke("resume", "--at", "2026-09-10T10:00:00Z")
+    invoke("projects", "client-project", "a", "AP-2")
+    assert [s["client_project"] for s in _spans(invoke)] == ["X-1", "X-1"]
+
+
 def test_status_json_includes_description(invoke) -> None:
     invoke("start", "a", "-d", "hello")
     assert json.loads(invoke("status", "--json").output)["description"] == "hello"

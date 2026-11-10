@@ -44,6 +44,43 @@ def test_export_markdown(invoke) -> None:
     assert "| **Total** | **3.25** |" in out
 
 
+def _seed_client_projects(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client-project", "apollo11", "AP-11")
+    invoke("edit", "-2", "--client-project", "AP-99")
+
+
+def test_export_by_client_project(invoke) -> None:
+    _seed_client_projects(invoke)
+    result = invoke("export", "--by-client-project")
+    assert result.exit_code == 0
+    out = result.output
+    assert "| Date | Start | End | Hours | Client project | Description |" in out
+    assert "| Client project | Hours |" in out
+    assert "| AP-11 | 1.50 |" in out
+    assert "| AP-99 | 1.00 |" in out
+    assert "|  | 0.75 |" in out
+    assert "| **Total** | **3.25** |" in out
+
+
+def test_export_by_client_project_explicit_columns_win(invoke) -> None:
+    _seed_client_projects(invoke)
+    out = invoke("export", "--by-client-project", "--columns", "project,hours").output
+    assert "| Project | Hours |" in out
+    assert "| Client project | Hours |" in out
+
+
+def test_export_default_grouping_ignores_client_project(invoke) -> None:
+    _seed_client_projects(invoke)
+    assert "| apollo11 | 2.50 |" in invoke("export").output
+
+
+def test_export_by_client_project_german(invoke) -> None:
+    _seed_client_projects(invoke)
+    out = invoke("export", "--lang", "de", "--by-client-project").output
+    assert "| Kundenprojekt | Stunden |" in out
+
+
 def test_export_name(invoke) -> None:
     _seed(invoke)
     result = invoke("export", "--name", "Christian Krudewig")

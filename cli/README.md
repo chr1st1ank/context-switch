@@ -22,6 +22,8 @@ cosw cancel --force                   # discard the active timer
 cosw add apollo11 --from 08:00 --to 09:30   # record time not tracked live
 cosw edit -1 +focus                         # tag the most recent span
 cosw remove -1 --force                      # delete a span
+cosw edit -1 --client-project X-1           # bill this span to another client project
+cosw edit -1 --inherit-client-project       # back to the project's client project
 
 cosw log --week                      # spans this week
 cosw log --client nasa               # spans whose project is labelled NASA
@@ -32,10 +34,12 @@ cosw report --by day --from 2026-09-01 --to 2026-09-11
 cosw export --range month            # timesheet (markdown) for this month
 cosw export --client nasa --name "Jane Doe" -o stundenzettel.pdf --lang de
 cosw export --columns date,start,end,hours,project,client,tags,description
+cosw export --by-client-project      # totals per client project
 
-cosw projects                        # list; also: add|rename|client|archive|unarchive
-cosw projects add apollo11 --client "NASA"
+cosw projects                        # list; also: add|rename|client|client-project|archive|unarchive
+cosw projects add apollo11 --client "NASA" --client-project AP-11
 cosw projects client apollo11 "ESA"  # set; --clear removes the label
+cosw projects client-project apollo11 AP-12  # spans without an override follow
 cosw tags --all                      # include archived
 ```
 

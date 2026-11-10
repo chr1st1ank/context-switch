@@ -27,6 +27,7 @@ internal fun EditSpanDialog(
         projectId: String?,
         tagIds: List<String>,
         description: String,
+        clientProject: String,
     ) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
@@ -42,7 +43,9 @@ internal fun EditSpanDialog(
     var projectId by remember { mutableStateOf(span?.projectId) }
     var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
     var description by remember { mutableStateOf(span?.description ?: "") }
+    var clientProject by remember { mutableStateOf(span?.clientProject ?: "") }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
+    val inherited = snap?.projects?.firstOrNull { it.id == projectId }?.clientProject
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
     val stopError = if (stop != null && !isStopAfterStart(start, stop!!)) {
         "Must be after start"
@@ -98,6 +101,14 @@ internal fun EditSpanDialog(
                     supportingText = { Text("${description.length}/$MAX_DESCRIPTION_CHARS") },
                     maxLines = 4,
                 )
+                OutlinedTextField(
+                    value = clientProject,
+                    onValueChange = { clientProject = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Client project") },
+                    placeholder = inherited?.let { { Text(it) } },
+                    singleLine = true,
+                )
             }
         },
         confirmButton = {
@@ -110,6 +121,7 @@ internal fun EditSpanDialog(
                         projectId,
                         tagIds.toList(),
                         description,
+                        clientProject,
                     )
                 },
             ) { Text("Save") }

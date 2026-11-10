@@ -315,6 +315,46 @@ def test_edit_description_only_is_a_change(invoke) -> None:
     assert invoke("edit", "-d", "x").exit_code == 0
 
 
+def test_edit_client_project_override_and_inherit(invoke) -> None:
+    _seed(invoke)
+    invoke("projects", "client-project", "apollo11", "AP-11")
+
+    def apollo() -> dict[str, Any]:
+        spans: list[dict[str, Any]] = json.loads(invoke("log", "-j", "--range", "all").output)
+        return next(s for s in spans if s["project"] == "apollo11")
+
+    assert apollo()["client_project"] == "AP-11"
+    assert invoke("edit", "-2", "--client-project", "X-1").exit_code == 0
+    assert apollo()["client_project"] == "X-1"
+    assert apollo()["project"] == "apollo11"
+    invoke("projects", "client-project", "apollo11", "AP-12")
+    assert apollo()["client_project"] == "X-1"
+    assert invoke("edit", "-2", "--inherit-client-project").exit_code == 0
+    assert apollo()["client_project"] == "AP-12"
+
+
+def test_edit_client_project_flags_conflict(invoke) -> None:
+    _seed(invoke)
+    result = invoke("edit", "-1", "--client-project", "X-1", "--inherit-client-project")
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+
+
+def test_add_with_client_project(invoke) -> None:
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-10T08:00:00Z",
+        "--to",
+        "2026-09-10T09:00:00Z",
+        "--client-project",
+        "X-1",
+    )
+    (span,) = json.loads(invoke("log", "-j", "--range", "all").output)
+    assert span["client_project"] == "X-1"
+
+
 def test_log_shows_first_line_truncated(invoke) -> None:
     invoke(
         "add",
