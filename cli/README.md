@@ -22,7 +22,7 @@ cosw cancel --force                   # discard the active timer
 cosw add apollo11 --from 08:00 --to 09:30   # record time not tracked live
 cosw edit -1 +focus                         # tag the most recent span
 cosw remove -1 --force                      # delete a span
-cosw edit -1 --client-project X-1           # bill this span to another client project
+cosw edit -1 --client-project X-1           # bill this span to another client project (must exist)
 cosw edit -1 --inherit-client-project       # back to the project's client project
 
 cosw log --week                      # spans this week
@@ -40,6 +40,9 @@ cosw projects                        # list; also: add|rename|client|client-proj
 cosw projects add apollo11 --client "NASA" --client-project AP-11
 cosw projects client apollo11 "ESA"  # set; --clear removes the label
 cosw projects client-project apollo11 AP-12  # spans without an override follow
+
+cosw client-projects add AP-11       # the customer's identifiers; pick, never type free text
+cosw client-projects                 # list; also: add|rename|archive|unarchive (Tab completes)
 cosw tags --all                      # include archived
 ```
 

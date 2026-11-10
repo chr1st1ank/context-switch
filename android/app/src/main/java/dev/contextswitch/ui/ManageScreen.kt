@@ -12,27 +12,37 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import dev.contextswitch.ClientProjectRec
 import dev.contextswitch.LogbookStore
+
+private const val TAB_PROJECTS = 0
+private const val TAB_CLIENT_PROJECTS = 1
+private const val TAB_TAGS = 2
 
 @Composable
 fun ManageScreen(store: LogbookStore) {
     val snap by store.snapshot.collectAsState()
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(TAB_PROJECTS) }
     var showAdd by remember { mutableStateOf(false) }
+    val clientProjects = snap?.clientProjects.orEmpty()
+    val clientProjectName = clientProjects.associate { it.id to it.name }
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("📁 Projects") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("🏷️ Tags") })
+            Tab(selected = tab == TAB_PROJECTS, onClick = { tab = TAB_PROJECTS }, text = { Text("📁 Projects") })
+            Tab(selected = tab == TAB_CLIENT_PROJECTS, onClick = { tab = TAB_CLIENT_PROJECTS }, text = { Text("🧾 Client projects") })
+            Tab(selected = tab == TAB_TAGS, onClick = { tab = TAB_TAGS }, text = { Text("🏷️ Tags") })
         }
         LazyColumn(Modifier.weight(1f)) {
-            if (tab == 0) {
-                items(snap?.projects.orEmpty(), key = { it.id }) { p ->
+            when (tab) {
+                TAB_PROJECTS -> items(snap?.projects.orEmpty(), key = { it.id }) { p ->
                     ManageRow(
                         name = p.name,
                         color = projectColor(p.id),
                         client = p.client,
-                        clientProject = p.clientProject,
+                        clientProjectId = p.clientProjectId,
+                        clientProjectName = p.clientProjectId?.let { clientProjectName[it] },
+                        clientProjects = clientProjects,
                         archived = p.archived,
                         onRename = { store.renameProject(p.id, it) },
                         onSetClient = { store.setProjectClient(p.id, it) },
@@ -40,8 +50,15 @@ fun ManageScreen(store: LogbookStore) {
                         onArchive = { store.setProjectArchived(p.id, !p.archived) },
                     )
                 }
-            } else {
-                items(snap?.tags.orEmpty(), key = { it.id }) { t ->
+                TAB_CLIENT_PROJECTS -> items(clientProjects, key = { it.id }) { c ->
+                    ManageRow(
+                        name = c.name,
+                        archived = c.archived,
+                        onRename = { store.renameClientProject(c.id, it) },
+                        onArchive = { store.setClientProjectArchived(c.id, !c.archived) },
+                    )
+                }
+                else -> items(snap?.tags.orEmpty(), key = { it.id }) { t ->
                     ManageRow(
                         name = t.name,
                         archived = t.archived,
@@ -52,52 +69,69 @@ fun ManageScreen(store: LogbookStore) {
             }
         }
         Row(Modifier.padding(16.dp)) {
-            ExtendedFloatingActionButton(onClick = { showAdd = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text(if (tab == 0) "New project" else "New tag") })
+            val label = when (tab) {
+                TAB_PROJECTS -> "New project"
+                TAB_CLIENT_PROJECTS -> "New client project"
+                else -> "New tag"
+            }
+            ExtendedFloatingActionButton(onClick = { showAdd = true }, icon = { Icon(Icons.Filled.Add, null) }, text = { Text(label) })
         }
     }
 
     if (showAdd) {
         var name by remember { mutableStateOf("") }
         var client by remember { mutableStateOf("") }
-        var clientProject by remember { mutableStateOf("") }
+        var clientProjectId by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { showAdd = false },
-            title = { Text(if (tab == 0) "New project" else "New tag") },
+            title = {
+                Text(
+                    when (tab) {
+                        TAB_PROJECTS -> "New project"
+                        TAB_CLIENT_PROJECTS -> "New client project"
+                        else -> "New tag"
+                    },
+                )
+            },
             text = {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
                         singleLine = true,
                         label = { Text("Name") },
                     )
-                    if (tab == 0) {
+                    if (tab == TAB_PROJECTS) {
                         OutlinedTextField(
                             value = client,
                             onValueChange = { client = it },
                             singleLine = true,
                             label = { Text("Client (optional)") },
                         )
-                        OutlinedTextField(
-                            value = clientProject,
-                            onValueChange = { clientProject = it },
-                            singleLine = true,
-                            label = { Text("Client project (optional)") },
-                        )
+                        if (clientProjects.any { !it.archived }) {
+                            Text("Client project", style = MaterialTheme.typography.labelMedium)
+                            ClientProjectChips(
+                                selectedId = clientProjectId,
+                                options = clientProjects.filter { !it.archived }
+                                    .sortedBy { it.name.lowercase() },
+                                noneLabel = "None",
+                                onSelect = { clientProjectId = it },
+                            )
+                        }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     if (name.isNotBlank()) {
-                        if (tab == 0) {
-                            store.addProject(
+                        when (tab) {
+                            TAB_PROJECTS -> store.addProject(
                                 name.trim(),
                                 client.trim().ifBlank { null },
-                                clientProject.trim().ifBlank { null },
+                                clientProjectId,
                             )
-                        } else {
-                            store.addTag(name.trim())
+                            TAB_CLIENT_PROJECTS -> store.addClientProject(name.trim())
+                            else -> store.addTag(name.trim())
                         }
                     }
                     showAdd = false
@@ -113,7 +147,9 @@ private fun ManageRow(
     name: String,
     color: Color? = null,
     client: String? = null,
-    clientProject: String? = null,
+    clientProjectId: String? = null,
+    clientProjectName: String? = null,
+    clientProjects: List<ClientProjectRec> = emptyList(),
     archived: Boolean,
     onRename: (String) -> Unit,
     onSetClient: ((String?) -> Unit)? = null,
@@ -126,7 +162,7 @@ private fun ManageRow(
             { Box(Modifier.size(12.dp).background(c, CircleShape)) }
         },
         headlineContent = { Text(if (archived) "$name (archived)" else name) },
-        supportingContent = listOfNotNull(client, clientProject).joinToString(" · ")
+        supportingContent = listOfNotNull(client, clientProjectName).joinToString(" · ")
             .takeIf { it.isNotEmpty() }
             ?.let { s -> { Text(s) } },
         trailingContent = {
@@ -140,12 +176,12 @@ private fun ManageRow(
     if (editing) {
         var newName by remember { mutableStateOf(name) }
         var newClient by remember { mutableStateOf(client.orEmpty()) }
-        var newClientProject by remember { mutableStateOf(clientProject.orEmpty()) }
+        var newClientProjectId by remember { mutableStateOf(clientProjectId) }
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text(if (onSetClient != null) "Edit project" else "Rename") },
             text = {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = newName,
                         onValueChange = { newName = it },
@@ -160,12 +196,17 @@ private fun ManageRow(
                             label = { Text("Client") },
                         )
                     }
-                    if (onSetClientProject != null) {
-                        OutlinedTextField(
-                            value = newClientProject,
-                            onValueChange = { newClientProject = it },
-                            singleLine = true,
-                            label = { Text("Client project") },
+                    if (onSetClientProject != null &&
+                        (clientProjects.any { !it.archived } || clientProjectId != null)
+                    ) {
+                        Text("Client project", style = MaterialTheme.typography.labelMedium)
+                        ClientProjectChips(
+                            selectedId = newClientProjectId,
+                            options = clientProjects
+                                .filter { !it.archived || it.id == newClientProjectId }
+                                .sortedBy { it.name.lowercase() },
+                            noneLabel = "None",
+                            onSelect = { newClientProjectId = it },
                         )
                     }
                 }
@@ -179,8 +220,7 @@ private fun ManageRow(
                             if (c != client) setClient(c)
                         }
                         onSetClientProject?.let { setClientProject ->
-                            val cp = newClientProject.trim().ifBlank { null }
-                            if (cp != clientProject) setClientProject(cp)
+                            if (newClientProjectId != clientProjectId) setClientProject(newClientProjectId)
                         }
                     }
                     editing = false

@@ -29,6 +29,10 @@ def populated(invoke: Callable[..., Result], data_file: Path) -> Path:
         ("projects", "archive", "Gamma"),
         ("tags", "add", "old"),
         ("tags", "archive", "old"),
+        ("client-projects", "add", "AP-11"),
+        ("client-projects", "add", "X-1"),
+        ("client-projects", "add", "OLD-1"),
+        ("client-projects", "archive", "OLD-1"),
     ):
         result = invoke(*args)
         assert result.exit_code == 0, result.output
@@ -156,6 +160,15 @@ def test_manage_commands_complete_names(populated: Path) -> None:
     assert complete("projects", "client", incomplete="B") == ["Beta"]
     assert complete("tags", "archive", incomplete="") == ["deep", "review"]
     assert complete("projects", "add", incomplete="") == []
+
+
+def test_client_project_names_complete(populated: Path) -> None:
+    assert complete("edit", "--client-project", incomplete="") == ["AP-11", "X-1"]
+    assert complete("add", "--client-project", incomplete="x") == ["X-1"]
+    assert complete("projects", "client-project", "Alpha", incomplete="A") == ["AP-11"]
+    assert complete("projects", "add", "N", "--client-project", incomplete="") == ["AP-11", "X-1"]
+    assert complete("client-projects", "rename", incomplete="") == ["AP-11", "X-1"]
+    assert complete("client-projects", "unarchive", incomplete="") == ["OLD-1"]
 
 
 def test_unarchive_offers_archived_names_only(populated: Path) -> None:

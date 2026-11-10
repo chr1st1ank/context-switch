@@ -12,6 +12,7 @@ from typing import Any, TypeVar
 
 import click
 from contextswitch_core import (
+    ClientProject,
     DomainError,
     LocalFsProvider,
     Logbook,
@@ -170,7 +171,7 @@ def parse_dt(value: str) -> datetime:
         raise click.BadParameter(str(e)) from e
 
 
-_Named = TypeVar("_Named", Project, Tag)
+_Named = TypeVar("_Named", Project, Tag, ClientProject)
 
 
 def _find_by_name(items: list[_Named], name: str) -> _Named | None:
@@ -193,6 +194,29 @@ def require_tag(logbook: Logbook, name: str) -> Tag:
     if tag is None:
         raise click.ClickException(f"unknown tag: {name}")
     return tag
+
+
+def require_client_project(logbook: Logbook, name: str) -> ClientProject:
+    client_project = _find_by_name(logbook.client_projects(), name)
+    if client_project is None:
+        raise click.ClickException(f"unknown client project: {name}")
+    return client_project
+
+
+def resolve_client_project_id(logbook: Logbook, name: str) -> str:
+    """Resolve a client project name to an ID. Unlike projects and tags these
+    are never created on first use: a typo would silently start a new group
+    in client-project totals."""
+    existing = _find_by_name(logbook.client_projects(), name)
+    if existing is None:
+        raise click.ClickException(
+            f"unknown client project: {name} (create it with 'cosw client-projects add {name}')"
+        )
+    if existing.archived:
+        raise click.ClickException(
+            f"client project {existing.name!r} is archived; unarchive it first"
+        )
+    return existing.id
 
 
 def resolve_project_id(
@@ -291,7 +315,8 @@ def client_name(logbook: Logbook, span: Span) -> str | None:
 
 def client_project_name(logbook: Logbook, span: Span) -> str | None:
     """The span's effective client project: its override, else its project's."""
-    return logbook.effective_client_project(span.id)
+    effective = logbook.effective_client_project(span.id)
+    return effective.name if effective is not None else None
 
 
 def tag_names(logbook: Logbook, span: Span) -> list[str]:

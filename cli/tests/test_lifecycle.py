@@ -239,6 +239,9 @@ def test_resume_with_description_overrides_copy(invoke) -> None:
 
 
 def test_resume_copies_client_project_override(invoke) -> None:
+    invoke("client-projects", "add", "AP-1")
+    invoke("client-projects", "add", "AP-2")
+    invoke("client-projects", "add", "X-1")
     invoke("start", "a", "--at", "2026-09-10T08:00:00Z")
     invoke("stop", "--at", "2026-09-10T09:00:00Z")
     invoke("edit", "-1", "--client-project", "X-1")

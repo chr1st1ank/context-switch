@@ -22,6 +22,7 @@ from cosw.core import (
     project_name,
     read_logbook,
     require_tag,
+    resolve_client_project_id,
     resolve_project_id,
     resolve_span,
     resolve_tag_ids,
@@ -50,8 +51,9 @@ from cosw.timeparse import fmt_duration, fmt_local, fmt_time, parse_range_end, u
 @click.option(
     "--client-project",
     "client_project",
-    metavar="ID",
-    help="Override the project's client project for this span.",
+    metavar="NAME",
+    help="Override the project's client project for this span (must exist).",
+    shell_complete=completers.names("client_project"),
 )
 @click.pass_context
 def add(
@@ -78,7 +80,9 @@ def add(
         span_id = logbook.add_span(started, stopped, project_id, tag_ids, now)
         apply_description(logbook, span_id, span_description, now)
         if client_project is not None:
-            logbook.set_span_client_project(span_id, client_project, now)
+            logbook.set_span_client_project(
+                span_id, resolve_client_project_id(logbook, client_project), now
+            )
         span = logbook.span(span_id)
         assert span is not None
         return describe(logbook, span)
@@ -132,8 +136,9 @@ def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
 @click.option(
     "--client-project",
     "client_project",
-    metavar="ID",
-    help="Remap this span to a client project without changing its project.",
+    metavar="NAME",
+    help="Remap this span to a client project (must exist) without changing its project.",
+    shell_complete=completers.names("client_project"),
 )
 @click.option(
     "--inherit-client-project",
@@ -206,7 +211,9 @@ def edit(
         if inherit_client_project:
             logbook.set_span_client_project(span.id, None, now)
         if client_project is not None:
-            logbook.set_span_client_project(span.id, client_project, now)
+            logbook.set_span_client_project(
+                span.id, resolve_client_project_id(logbook, client_project), now
+            )
         updated = logbook.span(span.id)
         assert updated is not None
         return describe(logbook, updated)

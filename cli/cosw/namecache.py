@@ -1,4 +1,4 @@
-"""Local cache of project and tag names, backing shell completion.
+"""Local cache of project, tag and client project names, backing shell completion.
 
 Completion must never touch storage, the network or the passphrase, so it
 reads this cache instead. The cache is refreshed by every command that reads
@@ -18,7 +18,7 @@ from contextswitch_core import Logbook
 
 from cosw.config import Config
 
-Kind = Literal["project", "tag"]
+Kind = Literal["project", "tag", "client_project"]
 
 CACHE_ERRORS = (OSError, ValueError, click.ClickException)
 
@@ -44,6 +44,7 @@ def write_names(config: Config, data_file: Path, logbook: Logbook) -> None:
         payload = {
             "project": [[p.name, p.archived] for p in logbook.projects()],
             "tag": [[t.name, t.archived] for t in logbook.tags()],
+            "client_project": [[c.name, c.archived] for c in logbook.client_projects()],
         }
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")

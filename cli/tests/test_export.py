@@ -46,6 +46,8 @@ def test_export_markdown(invoke) -> None:
 
 def _seed_client_projects(invoke) -> None:
     _seed(invoke)
+    for name in ("AP-11", "AP-99"):
+        invoke("client-projects", "add", name)
     invoke("projects", "client-project", "apollo11", "AP-11")
     invoke("edit", "-2", "--client-project", "AP-99")
 

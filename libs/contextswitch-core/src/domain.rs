@@ -42,6 +42,9 @@ pub enum DomainError {
     /// Referenced tag does not exist.
     #[error("unknown tag: {0}")]
     TagNotFound(Uuid),
+    /// Referenced client project does not exist.
+    #[error("unknown client project: {0}")]
+    ClientProjectNotFound(Uuid),
     /// Referenced span does not exist.
     #[error("unknown span: {0}")]
     SpanNotFound(Uuid),
@@ -51,6 +54,9 @@ pub enum DomainError {
     /// A tag with this name already exists (case-insensitive).
     #[error("duplicate tag name: {0:?}")]
     DuplicateTagName(String),
+    /// A client project with this name already exists (case-insensitive).
+    #[error("duplicate client project name: {0:?}")]
+    DuplicateClientProjectName(String),
     /// `started_at` must not be later than `stopped_at`.
     #[error("started_at must not be later than stopped_at")]
     InvalidTimeRange,
@@ -111,10 +117,10 @@ pub struct Project {
     /// the project has no client; absent keys in older logbooks read as
     /// `None` too, so this stays schema version 1.
     pub client: Option<String>,
-    /// Optional identifier of this project on the client side; spans
-    /// inherit it unless they override it.
+    /// Optional client project this project is billed to; spans inherit it
+    /// unless they override it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_project: Option<String>,
+    pub client_project_id: Option<Uuid>,
     /// Archived projects are hidden from pickers but keep their history.
     pub archived: bool,
     pub created_at: DateTime<Utc>,
@@ -134,7 +140,7 @@ impl Project {
             id: Uuid::new_v4(),
             name: name.into(),
             client: normalize_client(client),
-            client_project: None,
+            client_project_id: None,
             archived: false,
             created_at: at,
             updated_at: at,
@@ -167,8 +173,8 @@ impl Project {
     }
 
     #[getter]
-    fn client_project(&self) -> Option<String> {
-        self.client_project.clone()
+    fn client_project_id(&self) -> Option<String> {
+        self.client_project_id.map(|id| id.to_string())
     }
 
     #[getter]
@@ -188,8 +194,8 @@ impl Project {
 
     fn __repr__(&self) -> String {
         format!(
-            "Project(id={}, name={:?}, client={:?}, client_project={:?}, archived={})",
-            self.id, self.name, self.client, self.client_project, self.archived
+            "Project(id={}, name={:?}, client={:?}, client_project_id={:?}, archived={})",
+            self.id, self.name, self.client, self.client_project_id, self.archived
         )
     }
 }
@@ -261,6 +267,75 @@ impl Tag {
     }
 }
 
+/// A customer-side project identifier that projects and spans can point to.
+/// Picking one from the list replaces typing it, so spelling cannot drift.
+#[cfg_attr(feature = "python", pyclass)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientProject {
+    /// Stable identity; never reused.
+    pub id: Uuid,
+    /// The identifier as the customer writes it; case-insensitively unique
+    /// within a logbook.
+    pub name: String,
+    /// Archived client projects are hidden from pickers but keep their history.
+    pub archived: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl ClientProject {
+    pub fn new(name: impl Into<String>, at: DateTime<Utc>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            archived: false,
+            created_at: at,
+            updated_at: at,
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+#[cfg_attr(feature = "python", pymethods)]
+impl ClientProject {
+    #[new]
+    fn py_new(name: String) -> Self {
+        Self::new(name, Utc::now())
+    }
+
+    #[getter]
+    fn id(&self) -> String {
+        self.id.to_string()
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[getter]
+    fn archived(&self) -> bool {
+        self.archived
+    }
+
+    #[getter]
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+
+    #[getter]
+    fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ClientProject(id={}, name={:?}, archived={})",
+            self.id, self.name, self.archived
+        )
+    }
+}
+
 /// A mutable record of a period during which the user records time.
 #[cfg_attr(feature = "python", pyclass)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -278,7 +353,7 @@ pub struct Span {
     /// Optional per-span override of the project's client project; `None`
     /// inherits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_project: Option<String>,
+    pub client_project_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -305,7 +380,7 @@ impl Span {
             project_id,
             tag_ids,
             description: None,
-            client_project: None,
+            client_project_id: None,
             created_at: at,
             updated_at: at,
         }
@@ -367,8 +442,8 @@ impl Span {
     }
 
     #[getter]
-    fn client_project(&self) -> Option<String> {
-        self.client_project.clone()
+    fn client_project_id(&self) -> Option<String> {
+        self.client_project_id.map(|id| id.to_string())
     }
 
     #[getter(is_active)]
@@ -422,6 +497,9 @@ pub struct Logbook {
     pub active_span_id: Option<Uuid>,
     pub projects: BTreeMap<Uuid, Project>,
     pub tags: BTreeMap<Uuid, Tag>,
+    /// Customer-side project identifiers; absent in logbooks before v3.
+    #[serde(default)]
+    pub client_projects: BTreeMap<Uuid, ClientProject>,
     pub spans: BTreeMap<Uuid, Span>,
 }
 
@@ -439,6 +517,7 @@ impl Logbook {
             active_span_id: None,
             projects: BTreeMap::new(),
             tags: BTreeMap::new(),
+            client_projects: BTreeMap::new(),
             spans: BTreeMap::new(),
         }
     }
@@ -481,6 +560,11 @@ impl Logbook {
                     return Err(DomainError::TagNotFound(*tag_id));
                 }
             }
+            if let Some(id) = span.client_project_id {
+                if !self.client_projects.contains_key(&id) {
+                    return Err(DomainError::ClientProjectNotFound(id));
+                }
+            }
             match span.stopped_at {
                 Some(stopped) if span.started_at > stopped => {
                     return Err(DomainError::InvalidTimeRange);
@@ -494,6 +578,16 @@ impl Logbook {
         }
         if let Some(name) = find_duplicate(self.tags.values().map(|t| &t.name)) {
             return Err(DomainError::DuplicateTagName(name));
+        }
+        for project in self.projects.values() {
+            if let Some(id) = project.client_project_id {
+                if !self.client_projects.contains_key(&id) {
+                    return Err(DomainError::ClientProjectNotFound(id));
+                }
+            }
+        }
+        if let Some(name) = find_duplicate(self.client_projects.values().map(|c| &c.name)) {
+            return Err(DomainError::DuplicateClientProjectName(name));
         }
         match self.active_span_id {
             Some(id) if unstopped == [id] => {}
@@ -553,6 +647,30 @@ impl Logbook {
             return Err(DomainError::DuplicateTagName(name.to_string()));
         }
         Ok(())
+    }
+
+    fn check_client_project_name(
+        &self,
+        name: &str,
+        except: Option<Uuid>,
+    ) -> Result<(), DomainError> {
+        if self
+            .client_projects
+            .values()
+            .any(|c| Some(c.id) != except && c.name.to_lowercase() == name.to_lowercase())
+        {
+            return Err(DomainError::DuplicateClientProjectName(name.to_string()));
+        }
+        Ok(())
+    }
+
+    fn check_client_project_ref(&self, id: Option<Uuid>) -> Result<(), DomainError> {
+        match id {
+            Some(id) if !self.client_projects.contains_key(&id) => {
+                Err(DomainError::ClientProjectNotFound(id))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Reject a `[started_at, stopped_at)` interval that overlaps an
@@ -770,31 +888,34 @@ impl Logbook {
         Ok(())
     }
 
-    /// Set or clear (`None`) a span's client project override. The text is
-    /// trimmed and blank becomes `None`, which inherits the project's value.
+    /// Set a span's client project override, or clear it (`None`) so the
+    /// span inherits its project's client project again.
     pub fn set_span_client_project(
         &mut self,
         span_id: Uuid,
-        client_project: Option<String>,
+        client_project_id: Option<Uuid>,
         at: DateTime<Utc>,
     ) -> Result<(), DomainError> {
+        self.check_client_project_ref(client_project_id)?;
         let span = self
             .spans
             .get_mut(&span_id)
             .ok_or(DomainError::SpanNotFound(span_id))?;
-        span.client_project = normalize_client(client_project);
+        span.client_project_id = client_project_id;
         span.updated_at = at;
         Ok(())
     }
 
     /// A span's effective client project: its own override, else its
-    /// project's current value, else `None`.
-    pub fn effective_client_project<'a>(&'a self, span: &'a Span) -> Option<&'a str> {
-        span.client_project.as_deref().or_else(|| {
-            span.project_id
-                .and_then(|id| self.projects.get(&id))
-                .and_then(|p| p.client_project.as_deref())
-        })
+    /// project's current one, else `None`.
+    pub fn effective_client_project(&self, span: &Span) -> Option<&ClientProject> {
+        span.client_project_id
+            .or_else(|| {
+                span.project_id
+                    .and_then(|id| self.projects.get(&id))
+                    .and_then(|p| p.client_project_id)
+            })
+            .and_then(|id| self.client_projects.get(&id))
     }
 
     /// Clear a span's project assignment. The time stays visible as
@@ -859,19 +980,20 @@ impl Logbook {
         Ok(())
     }
 
-    /// Set or clear (`None`) a project's client project. Blank strings are
-    /// normalized to `None`; spans without an override follow the change.
+    /// Set a project's client project, or clear it (`None`). Spans without
+    /// an override follow the change.
     pub fn set_project_client_project(
         &mut self,
         project_id: Uuid,
-        client_project: Option<String>,
+        client_project_id: Option<Uuid>,
         at: DateTime<Utc>,
     ) -> Result<(), DomainError> {
+        self.check_client_project_ref(client_project_id)?;
         let project = self
             .projects
             .get_mut(&project_id)
             .ok_or(DomainError::ProjectNotFound(project_id))?;
-        project.client_project = normalize_client(client_project);
+        project.client_project_id = client_project_id;
         project.updated_at = at;
         Ok(())
     }
@@ -941,6 +1063,55 @@ impl Logbook {
         tag.updated_at = at;
         Ok(())
     }
+
+    /// Create a client project. Names are case-insensitively unique,
+    /// including archived records.
+    pub fn add_client_project(
+        &mut self,
+        name: impl Into<String>,
+        at: DateTime<Utc>,
+    ) -> Result<Uuid, DomainError> {
+        let name = name.into();
+        self.check_client_project_name(&name, None)?;
+        let client_project = ClientProject::new(name, at);
+        let id = client_project.id;
+        self.client_projects.insert(id, client_project);
+        Ok(id)
+    }
+
+    pub fn rename_client_project(
+        &mut self,
+        client_project_id: Uuid,
+        name: impl Into<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let name = name.into();
+        self.check_client_project_name(&name, Some(client_project_id))?;
+        let client_project = self
+            .client_projects
+            .get_mut(&client_project_id)
+            .ok_or(DomainError::ClientProjectNotFound(client_project_id))?;
+        client_project.name = name;
+        client_project.updated_at = at;
+        Ok(())
+    }
+
+    /// Archive or unarchive a client project. History is preserved;
+    /// projects and spans keep referring to it by ID.
+    pub fn set_client_project_archived(
+        &mut self,
+        client_project_id: Uuid,
+        archived: bool,
+        at: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        let client_project = self
+            .client_projects
+            .get_mut(&client_project_id)
+            .ok_or(DomainError::ClientProjectNotFound(client_project_id))?;
+        client_project.archived = archived;
+        client_project.updated_at = at;
+        Ok(())
+    }
 }
 
 fn find_duplicate<'a>(names: impl Iterator<Item = &'a String>) -> Option<String> {
@@ -990,6 +1161,11 @@ impl Logbook {
         Ok(self.tags.get(&parse_uuid(&id)?).cloned())
     }
 
+    #[pyo3(name = "client_project")]
+    fn py_client_project(&self, id: String) -> PyResult<Option<ClientProject>> {
+        Ok(self.client_projects.get(&parse_uuid(&id)?).cloned())
+    }
+
     fn span(&self, id: String) -> PyResult<Option<Span>> {
         Ok(self.spans.get(&parse_uuid(&id)?).cloned())
     }
@@ -1000,6 +1176,10 @@ impl Logbook {
 
     fn tags(&self) -> Vec<Tag> {
         self.tags.values().cloned().collect()
+    }
+
+    fn client_projects(&self) -> Vec<ClientProject> {
+        self.client_projects.values().cloned().collect()
     }
 
     fn spans(&self) -> Vec<Span> {
@@ -1093,21 +1273,25 @@ impl Logbook {
         Ok(self.set_span_description(parse_uuid(&span_id)?, description, at)?)
     }
 
-    #[pyo3(name = "set_span_client_project", signature = (span_id, client_project, at))]
+    #[pyo3(name = "set_span_client_project", signature = (span_id, client_project_id, at))]
     fn py_set_span_client_project(
         &mut self,
         span_id: String,
-        client_project: Option<String>,
+        client_project_id: Option<String>,
         at: DateTime<Utc>,
     ) -> PyResult<()> {
-        Ok(self.set_span_client_project(parse_uuid(&span_id)?, client_project, at)?)
+        Ok(self.set_span_client_project(
+            parse_uuid(&span_id)?,
+            parse_uuid_opt(client_project_id)?,
+            at,
+        )?)
     }
 
     #[pyo3(name = "effective_client_project")]
-    fn py_effective_client_project(&self, span_id: String) -> PyResult<Option<String>> {
+    fn py_effective_client_project(&self, span_id: String) -> PyResult<Option<ClientProject>> {
         let id = parse_uuid(&span_id)?;
         let span = self.spans.get(&id).ok_or(DomainError::SpanNotFound(id))?;
-        Ok(self.effective_client_project(span).map(str::to_string))
+        Ok(self.effective_client_project(span).cloned())
     }
 
     #[pyo3(name = "unassign_span")]
@@ -1145,14 +1329,18 @@ impl Logbook {
         Ok(self.set_project_client(parse_uuid(&project_id)?, client, at)?)
     }
 
-    #[pyo3(name = "set_project_client_project", signature = (project_id, client_project, at))]
+    #[pyo3(name = "set_project_client_project", signature = (project_id, client_project_id, at))]
     fn py_set_project_client_project(
         &mut self,
         project_id: String,
-        client_project: Option<String>,
+        client_project_id: Option<String>,
         at: DateTime<Utc>,
     ) -> PyResult<()> {
-        Ok(self.set_project_client_project(parse_uuid(&project_id)?, client_project, at)?)
+        Ok(self.set_project_client_project(
+            parse_uuid(&project_id)?,
+            parse_uuid_opt(client_project_id)?,
+            at,
+        )?)
     }
 
     #[pyo3(name = "set_project_archived")]
@@ -1183,6 +1371,31 @@ impl Logbook {
         at: DateTime<Utc>,
     ) -> PyResult<()> {
         Ok(self.set_tag_archived(parse_uuid(&tag_id)?, archived, at)?)
+    }
+
+    #[pyo3(name = "add_client_project")]
+    fn py_add_client_project(&mut self, name: String, at: DateTime<Utc>) -> PyResult<String> {
+        Ok(self.add_client_project(name, at)?.to_string())
+    }
+
+    #[pyo3(name = "rename_client_project")]
+    fn py_rename_client_project(
+        &mut self,
+        client_project_id: String,
+        name: String,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.rename_client_project(parse_uuid(&client_project_id)?, name, at)?)
+    }
+
+    #[pyo3(name = "set_client_project_archived")]
+    fn py_set_client_project_archived(
+        &mut self,
+        client_project_id: String,
+        archived: bool,
+        at: DateTime<Utc>,
+    ) -> PyResult<()> {
+        Ok(self.set_client_project_archived(parse_uuid(&client_project_id)?, archived, at)?)
     }
 
     /// Serialize to the canonical pretty-printed JSON representation.
@@ -1639,7 +1852,8 @@ mod tests {
             .unwrap();
         let project = logbook.projects.values().next().unwrap();
         assert_eq!(project.client, None);
-        assert_eq!(project.client_project, None);
+        assert_eq!(project.client_project_id, None);
+        assert!(logbook.client_projects.is_empty());
         logbook.validate().unwrap();
     }
 
@@ -1679,6 +1893,23 @@ mod tests {
         assert!(matches!(
             logbook.validate(),
             Err(DomainError::TagNotFound(_))
+        ));
+        logbook.spans.get_mut(&id).unwrap().tag_ids = vec![];
+        logbook.spans.get_mut(&id).unwrap().client_project_id = Some(Uuid::new_v4());
+        assert!(matches!(
+            logbook.validate(),
+            Err(DomainError::ClientProjectNotFound(_))
+        ));
+        logbook.spans.get_mut(&id).unwrap().client_project_id = None;
+        let project = logbook.add_project("work", None, at(0)).unwrap();
+        logbook
+            .projects
+            .get_mut(&project)
+            .unwrap()
+            .client_project_id = Some(Uuid::new_v4());
+        assert!(matches!(
+            logbook.validate(),
+            Err(DomainError::ClientProjectNotFound(_))
         ));
     }
 
@@ -1828,70 +2059,154 @@ mod tests {
     fn client_project_inherits_and_overrides() {
         let mut logbook = Logbook::new();
         let project = logbook.add_project("apollo11", None, at(0)).unwrap();
+        let ap11 = logbook.add_client_project("AP-11", at(0)).unwrap();
+        let x1 = logbook.add_client_project("X-1", at(0)).unwrap();
         let span = logbook
             .add_span(at(0), at(10), Some(project), vec![], at(0))
             .unwrap();
-        let effective = |lb: &Logbook| {
-            lb.effective_client_project(&lb.spans[&span])
-                .map(str::to_string)
-        };
+        let effective = |lb: &Logbook| lb.effective_client_project(&lb.spans[&span]).map(|c| c.id);
 
+        assert_eq!(effective(&logbook), None);
         logbook
-            .set_project_client_project(project, Some("AP-11".to_string()), at(1))
+            .set_project_client_project(project, Some(ap11), at(1))
             .unwrap();
         assert_eq!(logbook.projects[&project].updated_at, at(1));
-        assert_eq!(effective(&logbook).as_deref(), Some("AP-11"));
+        assert_eq!(effective(&logbook), Some(ap11));
 
         logbook
-            .set_span_client_project(span, Some("X-1".to_string()), at(2))
+            .set_span_client_project(span, Some(x1), at(2))
             .unwrap();
         assert_eq!(logbook.spans[&span].updated_at, at(2));
-        assert_eq!(effective(&logbook).as_deref(), Some("X-1"));
+        assert_eq!(effective(&logbook), Some(x1));
         assert_eq!(logbook.spans[&span].project_id, Some(project));
 
         logbook.set_span_client_project(span, None, at(3)).unwrap();
-        assert_eq!(effective(&logbook).as_deref(), Some("AP-11"));
+        assert_eq!(effective(&logbook), Some(ap11));
 
+        let ap12 = logbook.add_client_project("AP-12", at(4)).unwrap();
         logbook
-            .set_project_client_project(project, Some("AP-12".to_string()), at(4))
+            .set_project_client_project(project, Some(ap12), at(4))
             .unwrap();
-        assert_eq!(effective(&logbook).as_deref(), Some("AP-12"));
+        assert_eq!(effective(&logbook), Some(ap12));
 
         let unassigned = logbook
             .add_span(at(20), at(30), None, vec![], at(0))
             .unwrap();
-        assert_eq!(
-            logbook.effective_client_project(&logbook.spans[&unassigned]),
-            None
-        );
-
-        logbook
-            .set_span_client_project(span, Some("   ".to_string()), at(5))
-            .unwrap();
-        assert_eq!(logbook.spans[&span].client_project, None);
+        assert!(logbook
+            .effective_client_project(&logbook.spans[&unassigned])
+            .is_none());
+        logbook.validate().unwrap();
     }
 
     #[test]
-    fn client_project_omitted_when_absent() {
+    fn renaming_a_client_project_updates_every_user() {
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("apollo11", None, at(0)).unwrap();
+        let cp = logbook.add_client_project("AP-1l", at(0)).unwrap();
+        logbook
+            .set_project_client_project(project, Some(cp), at(1))
+            .unwrap();
+        let span = logbook
+            .add_span(at(0), at(10), None, vec![], at(0))
+            .unwrap();
+        logbook
+            .set_span_client_project(span, Some(cp), at(1))
+            .unwrap();
+
+        logbook.rename_client_project(cp, "AP-11", at(2)).unwrap();
+
+        let name = |lb: &Logbook, id: Uuid| {
+            lb.effective_client_project(&lb.spans[&id])
+                .unwrap()
+                .name
+                .clone()
+        };
+        assert_eq!(name(&logbook, span), "AP-11");
+        let inheriting = logbook
+            .add_span(at(20), at(30), Some(project), vec![], at(0))
+            .unwrap();
+        assert_eq!(name(&logbook, inheriting), "AP-11");
+    }
+
+    #[test]
+    fn archived_client_project_still_resolves_on_history() {
+        let mut logbook = Logbook::new();
+        let cp = logbook.add_client_project("AP-11", at(0)).unwrap();
+        let span = logbook
+            .add_span(at(0), at(10), None, vec![], at(0))
+            .unwrap();
+        logbook
+            .set_span_client_project(span, Some(cp), at(1))
+            .unwrap();
+        logbook
+            .set_client_project_archived(cp, true, at(2))
+            .unwrap();
+        let effective = logbook.effective_client_project(&logbook.spans[&span]);
+        assert_eq!(effective.map(|c| c.archived), Some(true));
+        logbook.validate().unwrap();
+    }
+
+    #[test]
+    fn client_project_names_unique_case_insensitive() {
+        let mut logbook = Logbook::new();
+        let ap = logbook.add_client_project("AP-11", at(0)).unwrap();
+        let other = logbook.add_client_project("X-1", at(0)).unwrap();
+        assert!(matches!(
+            logbook.add_client_project("ap-11", at(0)),
+            Err(DomainError::DuplicateClientProjectName(_))
+        ));
+        assert!(matches!(
+            logbook.rename_client_project(other, "Ap-11", at(1)),
+            Err(DomainError::DuplicateClientProjectName(_))
+        ));
+        logbook.rename_client_project(ap, "AP-11", at(1)).unwrap();
+    }
+
+    #[test]
+    fn client_project_mutations_reject_unknown_ids() {
+        let mut logbook = Logbook::new();
+        let project = logbook.add_project("work", None, at(0)).unwrap();
+        let span = logbook
+            .add_span(at(0), at(10), None, vec![], at(0))
+            .unwrap();
+        let bogus = Uuid::new_v4();
+        assert!(matches!(
+            logbook.set_project_client_project(project, Some(bogus), at(1)),
+            Err(DomainError::ClientProjectNotFound(_))
+        ));
+        assert!(matches!(
+            logbook.set_span_client_project(span, Some(bogus), at(1)),
+            Err(DomainError::ClientProjectNotFound(_))
+        ));
+        let cp = logbook.add_client_project("AP-11", at(0)).unwrap();
+        assert!(matches!(
+            logbook.set_project_client_project(bogus, Some(cp), at(1)),
+            Err(DomainError::ProjectNotFound(_))
+        ));
+        assert!(matches!(
+            logbook.set_span_client_project(bogus, Some(cp), at(1)),
+            Err(DomainError::SpanNotFound(_))
+        ));
+        assert!(matches!(
+            logbook.rename_client_project(bogus, "x", at(1)),
+            Err(DomainError::ClientProjectNotFound(_))
+        ));
+        assert!(matches!(
+            logbook.set_client_project_archived(bogus, true, at(1)),
+            Err(DomainError::ClientProjectNotFound(_))
+        ));
+        assert_eq!(logbook.spans[&span].client_project_id, None);
+        assert_eq!(logbook.projects[&project].client_project_id, None);
+    }
+
+    #[test]
+    fn client_project_fields_omitted_when_absent() {
         let mut logbook = Logbook::new();
         let project = logbook.add_project("work", None, at(0)).unwrap();
         logbook
             .add_span(at(0), at(10), Some(project), vec![], at(0))
             .unwrap();
         let json = serde_json::to_string(&logbook).unwrap();
-        assert!(!json.contains("\"client_project\""));
-    }
-
-    #[test]
-    fn client_project_setters_reject_unknown_ids() {
-        let mut logbook = Logbook::new();
-        assert!(matches!(
-            logbook.set_project_client_project(Uuid::new_v4(), Some("x".to_string()), at(0)),
-            Err(DomainError::ProjectNotFound(_))
-        ));
-        assert!(matches!(
-            logbook.set_span_client_project(Uuid::new_v4(), Some("x".to_string()), at(0)),
-            Err(DomainError::SpanNotFound(_))
-        ));
+        assert!(!json.contains("client_project_id"));
     }
 }

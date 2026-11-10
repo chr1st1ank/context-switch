@@ -1,4 +1,5 @@
-"""Project and tag management: ``cosw projects`` and ``cosw tags`` groups."""
+"""Project, client project and tag management: ``cosw projects``, ``cosw
+client-projects`` and ``cosw tags`` groups."""
 
 from __future__ import annotations
 
@@ -7,22 +8,38 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import click
-from contextswitch_core import Logbook, Project, Tag
+from contextswitch_core import ClientProject, Logbook, Project, Tag
 
 from cosw import completers
 from cosw.cli import main
-from cosw.core import read_logbook, require_project, require_tag, transact
+from cosw.core import (
+    read_logbook,
+    require_client_project,
+    require_project,
+    require_tag,
+    resolve_client_project_id,
+    transact,
+)
 from cosw.timeparse import utcnow
 
-Kind = Literal["project", "tag"]
+Kind = Literal["project", "tag", "client_project"]
+_LABEL = {"project": "project", "tag": "tag", "client_project": "client project"}
 
 
-def _items(logbook: Logbook, kind: Kind) -> list[Project] | list[Tag]:
-    return logbook.projects() if kind == "project" else logbook.tags()
+def _items(logbook: Logbook, kind: Kind) -> list[Project] | list[Tag] | list[ClientProject]:
+    if kind == "project":
+        return logbook.projects()
+    if kind == "tag":
+        return logbook.tags()
+    return logbook.client_projects()
 
 
-def _require(logbook: Logbook, kind: Kind, name: str) -> Project | Tag:
-    return require_project(logbook, name) if kind == "project" else require_tag(logbook, name)
+def _require(logbook: Logbook, kind: Kind, name: str) -> Project | Tag | ClientProject:
+    if kind == "project":
+        return require_project(logbook, name)
+    if kind == "tag":
+        return require_tag(logbook, name)
+    return require_client_project(logbook, name)
 
 
 def _add(
@@ -36,14 +53,20 @@ def _add(
     if kind == "project":
         pid = logbook.add_project(name, at, client)
         if client_project is not None:
-            logbook.set_project_client_project(pid, client_project, at)
+            logbook.set_project_client_project(
+                pid, resolve_client_project_id(logbook, client_project), at
+            )
         return pid
+    if kind == "client_project":
+        return logbook.add_client_project(name, at)
     return logbook.add_tag(name, at)
 
 
 def _rename(logbook: Logbook, kind: Kind, item_id: str, name: str, at) -> None:
     if kind == "project":
         logbook.rename_project(item_id, name, at)
+    elif kind == "client_project":
+        logbook.rename_client_project(item_id, name, at)
     else:
         logbook.rename_tag(item_id, name, at)
 
@@ -51,8 +74,17 @@ def _rename(logbook: Logbook, kind: Kind, item_id: str, name: str, at) -> None:
 def _set_archived(logbook: Logbook, kind: Kind, item_id: str, archived: bool, at) -> None:
     if kind == "project":
         logbook.set_project_archived(item_id, archived, at)
+    elif kind == "client_project":
+        logbook.set_client_project_archived(item_id, archived, at)
     else:
         logbook.set_tag_archived(item_id, archived, at)
+
+
+def _client_project_label(logbook: Logbook, client_project_id: str | None) -> str | None:
+    if client_project_id is None:
+        return None
+    client_project = logbook.client_project(client_project_id)
+    return client_project.name if client_project is not None else None
 
 
 def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None:
@@ -69,20 +101,21 @@ def _list(ctx: click.Context, kind: Kind, show_all: bool, as_json: bool) -> None
             }
             if isinstance(i, Project):
                 entry["client"] = i.client
-                entry["client_project"] = i.client_project
+                entry["client_project"] = _client_project_label(logbook, i.client_project_id)
             payload.append(entry)
         click.echo(json.dumps(payload))
         return
     if not items:
-        click.echo(f"No {kind}s.")
+        click.echo(f"No {_LABEL[kind]}s.")
         return
     for item in items:
         notes = []
         if isinstance(item, Project):
             if item.client is not None:
                 notes.append(item.client)
-            if item.client_project is not None:
-                notes.append(f"client project {item.client_project}")
+            label = _client_project_label(logbook, item.client_project_id)
+            if label is not None:
+                notes.append(f"client project {label}")
         if item.archived:
             notes.append("archived")
         suffix = f" ({', '.join(notes)})" if notes else ""
@@ -98,7 +131,7 @@ def _register(group: click.Group, kind: Kind) -> None:
     ) -> None:
         """Create a new entry."""
         transact(ctx, lambda logbook: _add(logbook, kind, name, utcnow(), client, client_project))
-        click.echo(f"created {kind} {name}")
+        click.echo(f"created {_LABEL[kind]} {name}")
 
     command: Callable[..., Any] = click.pass_context(add_impl)
     command = click.argument("name")(command)
@@ -106,8 +139,9 @@ def _register(group: click.Group, kind: Kind) -> None:
         command = click.option(
             "--client-project",
             "client_project",
-            metavar="ID",
-            help="Optional client-side project identifier.",
+            metavar="NAME",
+            help="Bill the project to this existing client project.",
+            shell_complete=completers.names("client_project"),
         )(command)
         command = click.option(
             "--client", "client", metavar="CLIENT", help="Optional client label."
@@ -126,7 +160,7 @@ def _register(group: click.Group, kind: Kind) -> None:
             _rename(logbook, kind, item.id, new, utcnow())
 
         transact(ctx, mutate)
-        click.echo(f"renamed {kind} {old} to {new}")
+        click.echo(f"renamed {_LABEL[kind]} {old} to {new}")
 
     @group.command("archive")
     @click.argument("name", shell_complete=completers.names(kind))
@@ -139,7 +173,7 @@ def _register(group: click.Group, kind: Kind) -> None:
             _set_archived(logbook, kind, item.id, True, utcnow())
 
         transact(ctx, mutate)
-        click.echo(f"archived {kind} {name}")
+        click.echo(f"archived {_LABEL[kind]} {name}")
 
     @group.command("unarchive")
     @click.argument("name", shell_complete=completers.names(kind, archived=True))
@@ -152,7 +186,7 @@ def _register(group: click.Group, kind: Kind) -> None:
             _set_archived(logbook, kind, item.id, False, utcnow())
 
         transact(ctx, mutate)
-        click.echo(f"unarchived {kind} {name}")
+        click.echo(f"unarchived {_LABEL[kind]} {name}")
 
 
 @main.group(invoke_without_command=True)
@@ -177,6 +211,19 @@ def tags(ctx: click.Context, show_all: bool, as_json: bool) -> None:
 
 _register(projects, "project")
 _register(tags, "tag")
+
+
+@main.group("client-projects", invoke_without_command=True)
+@click.option("--all", "show_all", is_flag=True, help="Include archived entries.")
+@click.option("-j", "--json", "as_json", is_flag=True, help="Machine-readable output.")
+@click.pass_context
+def client_projects(ctx: click.Context, show_all: bool, as_json: bool) -> None:
+    """List and manage client projects (the identifiers your customers use)."""
+    if ctx.invoked_subcommand is None:
+        _list(ctx, "client_project", show_all, as_json)
+
+
+_register(client_projects, "client_project")
 
 
 @projects.command("client")
@@ -205,25 +252,30 @@ def project_client_cmd(ctx: click.Context, name: str, value: str | None, clear: 
 
 @projects.command("client-project")
 @click.argument("name", shell_complete=completers.names("project"))
-@click.argument("value", required=False, metavar="ID")
+@click.argument(
+    "value",
+    required=False,
+    metavar="CLIENT_PROJECT",
+    shell_complete=completers.names("client_project"),
+)
 @click.option("--clear", is_flag=True, help="Remove the client project.")
 @click.pass_context
 def project_client_project_cmd(
     ctx: click.Context, name: str, value: str | None, clear: bool
 ) -> None:
-    """Set or clear a project's client project identifier."""
+    """Set or clear the client project a project is billed to."""
     if clear and value is not None:
-        raise click.UsageError("--clear takes no ID value")
+        raise click.UsageError("--clear takes no CLIENT_PROJECT value")
     if value is None and not clear:
-        raise click.UsageError("missing ID (or pass --clear)")
-    new_value = None if clear else value
+        raise click.UsageError("missing CLIENT_PROJECT (or pass --clear)")
 
     def mutate(logbook: Logbook) -> None:
         project = require_project(logbook, name)
-        logbook.set_project_client_project(project.id, new_value, utcnow())
+        target = None if clear else resolve_client_project_id(logbook, value or "")
+        logbook.set_project_client_project(project.id, target, utcnow())
 
     transact(ctx, mutate)
     if clear:
         click.echo(f"cleared client project of project {name}")
     else:
-        click.echo(f"project {name} client project set to {new_value}")
+        click.echo(f"project {name} client project set to {value}")

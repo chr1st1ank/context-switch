@@ -102,8 +102,8 @@ class LogbookStore(private val context: Context) {
         projectId: String?,
         tagIds: List<String>,
         description: String,
-        clientProject: String,
-    ) = runOp { addSpan(start, stop, projectId, tagIds, description, clientProject) }
+        clientProjectId: String?,
+    ) = runOp { addSpan(start, stop, projectId, tagIds, description, clientProjectId) }
     fun editSpan(
         spanId: String,
         start: String?,
@@ -111,19 +111,23 @@ class LogbookStore(private val context: Context) {
         tagIds: List<String>?,
         project: ProjectEdit,
         description: String?,
-        clientProject: String?,
+        clientProject: ClientProjectEdit,
     ) = runOp { editSpan(spanId, start, stop, tagIds, project, description, clientProject) }
     fun removeSpan(spanId: String) = runOp { removeSpan(spanId) }
-    fun addProject(name: String, client: String? = null, clientProject: String? = null) =
-        runOp { addProject(name, client, clientProject) }
+    fun addProject(name: String, client: String? = null, clientProjectId: String? = null) =
+        runOp { addProject(name, client, clientProjectId) }
     fun setProjectClient(id: String, client: String?) = runOp { setProjectClient(id, client) }
-    fun setProjectClientProject(id: String, clientProject: String?) =
-        runOp { setProjectClientProject(id, clientProject) }
+    fun setProjectClientProject(id: String, clientProjectId: String?) =
+        runOp { setProjectClientProject(id, clientProjectId) }
     fun renameProject(id: String, name: String) = runOp { renameProject(id, name) }
     fun setProjectArchived(id: String, archived: Boolean) = runOp { setProjectArchived(id, archived) }
     fun addTag(name: String) = runOp { addTag(name) }
     fun renameTag(id: String, name: String) = runOp { renameTag(id, name) }
     fun setTagArchived(id: String, archived: Boolean) = runOp { setTagArchived(id, archived) }
+    fun addClientProject(name: String) = runOp { addClientProject(name) }
+    fun renameClientProject(id: String, name: String) = runOp { renameClientProject(id, name) }
+    fun setClientProjectArchived(id: String, archived: Boolean) =
+        runOp { setClientProjectArchived(id, archived) }
 
     fun testConnection(onResult: (String) -> Unit) {
         scope.launch {

@@ -14,7 +14,7 @@ class Project:
     id: str
     name: str
     client: str | None
-    client_project: str | None
+    client_project_id: str | None
     archived: bool
     created_at: datetime
     updated_at: datetime
@@ -32,6 +32,17 @@ class Tag:
 
     def __new__(cls, name: str) -> Tag: ...
 
+class ClientProject:
+    """A customer-side project identifier that projects and spans point to."""
+
+    id: str
+    name: str
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+    def __new__(cls, name: str) -> ClientProject: ...
+
 class Span:
     """A mutable record of a period during which the user records time."""
 
@@ -41,7 +52,7 @@ class Span:
     project_id: str | None
     tag_ids: list[str]
     description: str | None
-    client_project: str | None
+    client_project_id: str | None
     created_at: datetime
     updated_at: datetime
     is_active: bool
@@ -71,9 +82,11 @@ class Logbook:
         """The span currently recording time, if any."""
     def project(self, id: str) -> Project | None: ...
     def tag(self, id: str) -> Tag | None: ...
+    def client_project(self, id: str) -> ClientProject | None: ...
     def span(self, id: str) -> Span | None: ...
     def projects(self) -> list[Project]: ...
     def tags(self) -> list[Tag]: ...
+    def client_projects(self) -> list[ClientProject]: ...
     def spans(self) -> list[Span]: ...
     def start_timer(
         self,
@@ -127,10 +140,12 @@ class Logbook:
         characters raises DomainError.
         """
     def set_span_client_project(
-        self, span_id: str, client_project: str | None, at: datetime
+        self, span_id: str, client_project_id: str | None, at: datetime
     ) -> None:
-        """Set or clear (``None``) a span's client project override; ``None`` inherits."""
-    def effective_client_project(self, span_id: str) -> str | None:
+        """Point a span at a client project, or clear (``None``) the override so
+        the span inherits its project's client project. Unknown IDs raise
+        DomainError."""
+    def effective_client_project(self, span_id: str) -> ClientProject | None:
         """The span's override, else its project's client project, else ``None``."""
     def unassign_span(self, span_id: str, at: datetime) -> None:
         """Clear a span's project assignment."""
@@ -140,14 +155,20 @@ class Logbook:
     def set_project_client(self, project_id: str, client: str | None, at: datetime) -> None:
         """Set or clear (``None``) a project's client label."""
     def set_project_client_project(
-        self, project_id: str, client_project: str | None, at: datetime
+        self, project_id: str, client_project_id: str | None, at: datetime
     ) -> None:
-        """Set or clear (``None``) a project's client project."""
+        """Point a project at a client project, or clear (``None``) it."""
     def set_project_archived(self, project_id: str, archived: bool, at: datetime) -> None: ...
     def add_tag(self, name: str, at: datetime) -> str:
         """Create a tag; names are case-insensitively unique."""
     def rename_tag(self, tag_id: str, name: str, at: datetime) -> None: ...
     def set_tag_archived(self, tag_id: str, archived: bool, at: datetime) -> None: ...
+    def add_client_project(self, name: str, at: datetime) -> str:
+        """Create a client project; names are case-insensitively unique."""
+    def rename_client_project(self, client_project_id: str, name: str, at: datetime) -> None: ...
+    def set_client_project_archived(
+        self, client_project_id: str, archived: bool, at: datetime
+    ) -> None: ...
     def to_json(self) -> str:
         """Serialize to the canonical pretty-printed JSON representation."""
     @staticmethod

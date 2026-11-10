@@ -221,8 +221,8 @@ def resume(
         assert active is not None
         text = span_description if span_description is not None else source.description
         apply_description(logbook, active.id, text, at)
-        if source.client_project is not None:
-            logbook.set_span_client_project(active.id, source.client_project, at)
+        if source.client_project_id is not None:
+            logbook.set_span_client_project(active.id, source.client_project_id, at)
         return describe(logbook, active)
 
     description = transact(ctx, mutate)

@@ -45,7 +45,7 @@ An optional free-form label on a project naming the party the work is done for â
 _Avoid_: customer, account
 
 **Client project**:
-The identifier the customer uses for the work, stored as `client_project` on both projects and spans. A span's effective client project is its own value if set, otherwise its project's current value. Remapping a span to another client project never changes its project. `cosw export --by-client-project` groups totals by it.
+A named record of an identifier the customer uses for the work (for example `AP-11`), referenced by ID from projects (`client_project_id`) and spans. Chosen from a list, never typed per span, so a misspelling cannot create a new group. A span's effective client project is its own if set, otherwise its project's current one. Remapping a span to another client project never changes its project. Renaming one updates everything that uses it. `cosw export --by-client-project` groups totals by it. Unlike the project client, it is a first-class entity.
 _Avoid_: external project, customer project, billing code
 
 **Tag**:
