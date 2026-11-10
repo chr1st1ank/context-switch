@@ -12,10 +12,10 @@ class UsageCountsTest {
         projectId: String? = null,
         tagIds: List<String> = emptyList(),
         isActive: Boolean = false,
-    ) = SpanRec(id, "2025-06-15T10:00:00Z", null, projectId, tagIds, null, isActive)
+    ) = SpanRec(id, "2025-06-15T10:00:00Z", null, projectId, tagIds, null, null, isActive)
 
     private fun project(id: String, name: String = id, archived: Boolean = false) =
-        ProjectRec(id, name, null, archived)
+        ProjectRec(id, name, null, null, archived)
 
     private fun tag(id: String, name: String = id, archived: Boolean = false) =
         TagRec(id, name, archived)

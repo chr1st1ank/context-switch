@@ -56,11 +56,20 @@ pub struct ProjectRec {
     pub name: String,
     /// Optional client label; `None` when the project has none.
     pub client: Option<String>,
+    /// The client project this project is billed to; spans inherit it.
+    pub client_project_id: Option<String>,
     pub archived: bool,
 }
 
 #[derive(uniffi::Record)]
 pub struct TagRec {
+    pub id: String,
+    pub name: String,
+    pub archived: bool,
+}
+
+#[derive(uniffi::Record)]
+pub struct ClientProjectRec {
     pub id: String,
     pub name: String,
     pub archived: bool,
@@ -75,6 +84,8 @@ pub struct SpanRec {
     pub project_id: Option<String>,
     pub tag_ids: Vec<String>,
     pub description: Option<String>,
+    /// Raw client project override; `None` inherits the project's value.
+    pub client_project_id: Option<String>,
     pub is_active: bool,
 }
 
@@ -89,6 +100,17 @@ pub enum ProjectEdit {
     Clear,
 }
 
+/// How [`CoswStore::edit_span`] treats the span's client project override.
+#[derive(uniffi::Enum)]
+pub enum ClientProjectEdit {
+    /// Leave the override unchanged.
+    Keep,
+    /// Override with this client project.
+    Set { client_project_id: String },
+    /// Drop the override; the span inherits its project's client project.
+    Inherit,
+}
+
 /// A point-in-time view of the canonical logbook, safe to render.
 #[derive(uniffi::Record)]
 pub struct SnapshotRec {
@@ -101,6 +123,7 @@ pub struct SnapshotRec {
     pub spans: Vec<SpanRec>,
     pub projects: Vec<ProjectRec>,
     pub tags: Vec<TagRec>,
+    pub client_projects: Vec<ClientProjectRec>,
     /// Serialized logbook; clients may cache it for offline display.
     pub logbook_json: String,
 }
@@ -244,6 +267,7 @@ fn snapshot_rec(
             project_id: s.project_id.map(|id| id.to_string()),
             tag_ids: s.tag_ids.iter().map(Uuid::to_string).collect(),
             description: s.description.clone(),
+            client_project_id: s.client_project_id.map(|id| id.to_string()),
             is_active: s.is_active(),
         })
         .collect();
@@ -260,6 +284,7 @@ fn snapshot_rec(
                 id: p.id.to_string(),
                 name: p.name.clone(),
                 client: p.client.clone(),
+                client_project_id: p.client_project_id.map(|id| id.to_string()),
                 archived: p.archived,
             })
             .collect(),
@@ -270,6 +295,15 @@ fn snapshot_rec(
                 id: t.id.to_string(),
                 name: t.name.clone(),
                 archived: t.archived,
+            })
+            .collect(),
+        client_projects: lb
+            .client_projects
+            .values()
+            .map(|c| ClientProjectRec {
+                id: c.id.to_string(),
+                name: c.name.clone(),
+                archived: c.archived,
             })
             .collect(),
         logbook_json,
@@ -465,7 +499,8 @@ impl CoswStore {
     }
 
     /// Record a span that was not tracked live; `description` (None or
-    /// blank = none) says what was done.
+    /// blank = none) says what was done; `client_project_id` (None =
+    /// inherit) overrides the project's client project.
     pub fn add_span(
         &self,
         started_at: String,
@@ -473,20 +508,25 @@ impl CoswStore {
         project_id: Option<String>,
         tag_ids: Vec<String>,
         description: Option<String>,
+        client_project_id: Option<String>,
     ) -> Result<SnapshotRec, MobileError> {
         let started = parse_time(&started_at)?;
         let stopped = parse_time(&stopped_at)?;
         let project_id = parse_uuid_opt(&project_id)?;
         let tag_ids = parse_uuid_vec(&tag_ids)?;
+        let client_project_id = parse_uuid_opt(&client_project_id)?;
         self.mutate(|lb| {
             let id = lb.add_span(started, stopped, project_id, tag_ids.clone(), Utc::now())?;
-            lb.set_span_description(id, description.clone(), Utc::now())
+            lb.set_span_description(id, description.clone(), Utc::now())?;
+            lb.set_span_client_project(id, client_project_id, Utc::now())
         })
     }
 
-    /// Edit a span's times, tags, project, and description. `None` leaves a
-    /// field unchanged; an empty description clears it; `project` selects
-    /// keep/set/clear via [`ProjectEdit`].
+    /// Edit a span's times, tags, project, description, and client project
+    /// override. `None` leaves a field unchanged and an empty description
+    /// clears it; `project` selects keep/set/clear via [`ProjectEdit`] and
+    /// `client_project` keep/set/inherit via [`ClientProjectEdit`].
+    #[allow(clippy::too_many_arguments)]
     pub fn edit_span(
         &self,
         span_id: String,
@@ -495,6 +535,7 @@ impl CoswStore {
         tag_ids: Option<Vec<String>>,
         project: ProjectEdit,
         description: Option<String>,
+        client_project: ClientProjectEdit,
     ) -> Result<SnapshotRec, MobileError> {
         let span_id = parse_uuid(&span_id)?;
         let started = started_at.map(|s| parse_time(&s)).transpose()?;
@@ -504,6 +545,10 @@ impl CoswStore {
             ProjectEdit::Keep => None,
             ProjectEdit::Set { project_id } => Some(parse_uuid(project_id)?),
             ProjectEdit::Clear => None,
+        };
+        let client_project_id = match &client_project {
+            ClientProjectEdit::Set { client_project_id } => Some(parse_uuid(client_project_id)?),
+            ClientProjectEdit::Keep | ClientProjectEdit::Inherit => None,
         };
         self.mutate(|lb| {
             lb.edit_span(
@@ -520,6 +565,15 @@ impl CoswStore {
             if let Some(description) = &description {
                 lb.set_span_description(span_id, Some(description.clone()), Utc::now())?;
             }
+            match client_project {
+                ClientProjectEdit::Keep => {}
+                ClientProjectEdit::Set { .. } => {
+                    lb.set_span_client_project(span_id, client_project_id, Utc::now())?;
+                }
+                ClientProjectEdit::Inherit => {
+                    lb.set_span_client_project(span_id, None, Utc::now())?;
+                }
+            }
             Ok(())
         })
     }
@@ -534,10 +588,12 @@ impl CoswStore {
         &self,
         name: String,
         client: Option<String>,
+        client_project_id: Option<String>,
     ) -> Result<SnapshotRec, MobileError> {
+        let client_project_id = parse_uuid_opt(&client_project_id)?;
         self.mutate(|lb| {
-            lb.add_project(name.clone(), client.clone(), Utc::now())
-                .map(|_| ())
+            let id = lb.add_project(name.clone(), client.clone(), Utc::now())?;
+            lb.set_project_client_project(id, client_project_id, Utc::now())
         })
     }
 
@@ -549,6 +605,17 @@ impl CoswStore {
     ) -> Result<SnapshotRec, MobileError> {
         let project_id = parse_uuid(&project_id)?;
         self.mutate(|lb| lb.set_project_client(project_id, client.clone(), Utc::now()))
+    }
+
+    /// Point a project at a client project, or clear it (`None`).
+    pub fn set_project_client_project(
+        &self,
+        project_id: String,
+        client_project_id: Option<String>,
+    ) -> Result<SnapshotRec, MobileError> {
+        let project_id = parse_uuid(&project_id)?;
+        let client_project_id = parse_uuid_opt(&client_project_id)?;
+        self.mutate(|lb| lb.set_project_client_project(project_id, client_project_id, Utc::now()))
     }
 
     pub fn rename_project(
@@ -585,6 +652,28 @@ impl CoswStore {
     ) -> Result<SnapshotRec, MobileError> {
         let tag_id = parse_uuid(&tag_id)?;
         self.mutate(|lb| lb.set_tag_archived(tag_id, archived, Utc::now()))
+    }
+
+    pub fn add_client_project(&self, name: String) -> Result<SnapshotRec, MobileError> {
+        self.mutate(|lb| lb.add_client_project(name.clone(), Utc::now()).map(|_| ()))
+    }
+
+    pub fn rename_client_project(
+        &self,
+        client_project_id: String,
+        name: String,
+    ) -> Result<SnapshotRec, MobileError> {
+        let client_project_id = parse_uuid(&client_project_id)?;
+        self.mutate(|lb| lb.rename_client_project(client_project_id, name.clone(), Utc::now()))
+    }
+
+    pub fn set_client_project_archived(
+        &self,
+        client_project_id: String,
+        archived: bool,
+    ) -> Result<SnapshotRec, MobileError> {
+        let client_project_id = parse_uuid(&client_project_id)?;
+        self.mutate(|lb| lb.set_client_project_archived(client_project_id, archived, Utc::now()))
     }
 }
 
@@ -715,6 +804,7 @@ mod tests {
                 None,
                 vec![],
                 Some("  wrote tests  ".to_string()),
+                None,
             )
             .unwrap();
         assert_eq!(only_span(&snap).description.as_deref(), Some("wrote tests"));
@@ -735,6 +825,7 @@ mod tests {
                     None,
                     vec![],
                     description,
+                    None,
                 )
                 .unwrap();
             assert_eq!(
@@ -757,6 +848,7 @@ mod tests {
             None,
             vec![],
             Some("x".repeat(1001)),
+            None,
         );
         assert!(matches!(result, Err(MobileError::Invalid(_))));
         assert!(store.snapshot().unwrap().spans.is_empty());
@@ -772,12 +864,21 @@ mod tests {
                 None,
                 vec![],
                 Some("first".to_string()),
+                None,
             )
             .unwrap();
         let id = only_span(&snap).id.clone();
 
         let snap = store
-            .edit_span(id.clone(), None, None, None, ProjectEdit::Keep, None)
+            .edit_span(
+                id.clone(),
+                None,
+                None,
+                None,
+                ProjectEdit::Keep,
+                None,
+                ClientProjectEdit::Keep,
+            )
             .unwrap();
         assert_eq!(only_span(&snap).description.as_deref(), Some("first"));
 
@@ -789,12 +890,21 @@ mod tests {
                 None,
                 ProjectEdit::Keep,
                 Some("second".to_string()),
+                ClientProjectEdit::Keep,
             )
             .unwrap();
         assert_eq!(only_span(&snap).description.as_deref(), Some("second"));
 
         let snap = store
-            .edit_span(id, None, None, None, ProjectEdit::Keep, Some(String::new()))
+            .edit_span(
+                id,
+                None,
+                None,
+                None,
+                ProjectEdit::Keep,
+                Some(String::new()),
+                ClientProjectEdit::Keep,
+            )
             .unwrap();
         assert_eq!(only_span(&snap).description, None);
     }
@@ -802,7 +912,7 @@ mod tests {
     #[test]
     fn edit_span_project_edit_keep_set_clear() {
         let (_dir, store) = local_store();
-        let snap = store.add_project("work".to_string(), None).unwrap();
+        let snap = store.add_project("work".to_string(), None, None).unwrap();
         let project = snap.projects[0].id.clone();
         let snap = store
             .add_span(
@@ -810,6 +920,7 @@ mod tests {
                 "2026-10-20T09:00:00Z".to_string(),
                 None,
                 vec![],
+                None,
                 None,
             )
             .unwrap();
@@ -826,6 +937,7 @@ mod tests {
                     project_id: project.clone(),
                 },
                 None,
+                ClientProjectEdit::Keep,
             )
             .unwrap();
         assert_eq!(
@@ -834,7 +946,15 @@ mod tests {
         );
 
         let snap = store
-            .edit_span(id.clone(), None, None, None, ProjectEdit::Keep, None)
+            .edit_span(
+                id.clone(),
+                None,
+                None,
+                None,
+                ProjectEdit::Keep,
+                None,
+                ClientProjectEdit::Keep,
+            )
             .unwrap();
         assert_eq!(
             only_span(&snap).project_id.as_deref(),
@@ -842,8 +962,95 @@ mod tests {
         );
 
         let snap = store
-            .edit_span(id, None, None, None, ProjectEdit::Clear, None)
+            .edit_span(
+                id,
+                None,
+                None,
+                None,
+                ProjectEdit::Clear,
+                None,
+                ClientProjectEdit::Keep,
+            )
             .unwrap();
         assert_eq!(only_span(&snap).project_id, None);
+    }
+
+    #[test]
+    fn edit_span_client_project_keep_set_inherit() {
+        let (_dir, store) = local_store();
+        store.add_client_project("AP-11".to_string()).unwrap();
+        let snap = store.add_client_project("X-1".to_string()).unwrap();
+        let id_of = |snap: &SnapshotRec, name: &str| {
+            snap.client_projects
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap()
+                .id
+                .clone()
+        };
+        let ap11 = id_of(&snap, "AP-11");
+        let x1 = id_of(&snap, "X-1");
+
+        let snap = store
+            .add_project("work".to_string(), None, Some(ap11.clone()))
+            .unwrap();
+        assert_eq!(
+            snap.projects[0].client_project_id.as_deref(),
+            Some(ap11.as_str())
+        );
+        let project = snap.projects[0].id.clone();
+        let snap = store
+            .add_span(
+                "2026-10-20T08:00:00Z".to_string(),
+                "2026-10-20T09:00:00Z".to_string(),
+                Some(project),
+                vec![],
+                None,
+                None,
+            )
+            .unwrap();
+        let id = only_span(&snap).id.clone();
+        assert_eq!(only_span(&snap).client_project_id, None);
+        let edit = |client_project: ClientProjectEdit| {
+            store
+                .edit_span(
+                    id.clone(),
+                    None,
+                    None,
+                    None,
+                    ProjectEdit::Keep,
+                    None,
+                    client_project,
+                )
+                .unwrap()
+        };
+
+        let snap = edit(ClientProjectEdit::Set {
+            client_project_id: x1.clone(),
+        });
+        assert_eq!(
+            only_span(&snap).client_project_id.as_deref(),
+            Some(x1.as_str())
+        );
+        let snap = edit(ClientProjectEdit::Keep);
+        assert_eq!(
+            only_span(&snap).client_project_id.as_deref(),
+            Some(x1.as_str())
+        );
+        let snap = edit(ClientProjectEdit::Inherit);
+        assert_eq!(only_span(&snap).client_project_id, None);
+    }
+
+    #[test]
+    fn unknown_client_project_is_rejected_and_writes_nothing() {
+        let (_dir, store) = local_store();
+        let snap = store.add_project("work".to_string(), None, None).unwrap();
+        let project = snap.projects[0].id.clone();
+        let version = snap.version.clone();
+        let bogus = Uuid::new_v4().to_string();
+        assert!(store
+            .set_project_client_project(project, Some(bogus))
+            .is_err());
+        assert_eq!(store.snapshot().unwrap().version, version);
     }
 }

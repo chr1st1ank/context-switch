@@ -52,7 +52,7 @@ fn encrypted_v1_logbook_is_migrated_on_read_and_written_as_v2() {
     let provider = encrypted_provider_with(V1_LOGBOOK);
     let snap = provider.read().unwrap();
     assert_eq!(snap.version, "4");
-    assert_eq!(snap.logbook.schema_version, 2);
+    assert_eq!(snap.logbook.schema_version, 3);
     assert_eq!(snap.logbook.spans.len(), 1);
 
     let mut logbook = snap.logbook.clone();
@@ -63,7 +63,7 @@ fn encrypted_v1_logbook_is_migrated_on_read_and_written_as_v2() {
     provider.commit(logbook, &snap.version).unwrap();
 
     let reread = provider.read().unwrap();
-    assert_eq!(reread.logbook.schema_version, 2);
+    assert_eq!(reread.logbook.schema_version, 3);
     assert_eq!(
         reread.logbook.spans[&id].description.as_deref(),
         Some("migrated")
@@ -73,7 +73,7 @@ fn encrypted_v1_logbook_is_migrated_on_read_and_written_as_v2() {
 #[test]
 fn logbook_from_a_newer_schema_is_rejected() {
     let provider = encrypted_provider_with(
-        &V1_LOGBOOK.replace("\"schema_version\":1", "\"schema_version\":3"),
+        &V1_LOGBOOK.replace("\"schema_version\":1", "\"schema_version\":4"),
     );
     assert!(matches!(provider.read(), Err(StorageError::Corrupt(_))));
 }

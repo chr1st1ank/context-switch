@@ -113,7 +113,7 @@ fun LogScreen(store: LogbookStore) {
             snap = snap,
             span = span,
             onDismiss = { editing = null },
-            onSave = { start, stop, projectId, tagIds, description ->
+            onSave = { start, stop, projectId, tagIds, description, clientProjectId ->
                 store.editSpan(
                     span.id,
                     start,
@@ -121,6 +121,7 @@ fun LogScreen(store: LogbookStore) {
                     tagIds,
                     projectEdit(span.projectId, projectId),
                     description,
+                    clientProjectEdit(span.clientProjectId, clientProjectId),
                 )
                 editing = null
             },
@@ -135,9 +136,9 @@ fun LogScreen(store: LogbookStore) {
             snap = snap,
             span = null,
             onDismiss = { adding = false },
-            onSave = { start, stop, projectId, tagIds, description ->
+            onSave = { start, stop, projectId, tagIds, description, clientProjectId ->
                 if (start != null && stop != null) {
-                    store.addSpan(start, stop, projectId, tagIds, description)
+                    store.addSpan(start, stop, projectId, tagIds, description, clientProjectId)
                 }
                 adding = false
             },

@@ -315,6 +315,99 @@ def test_edit_description_only_is_a_change(invoke) -> None:
     assert invoke("edit", "-d", "x").exit_code == 0
 
 
+def _client_projects(invoke, *names: str) -> None:
+    for name in names:
+        assert invoke("client-projects", "add", name).exit_code == 0
+
+
+def test_edit_client_project_override_and_inherit(invoke) -> None:
+    _seed(invoke)
+    _client_projects(invoke, "AP-11", "AP-12", "X-1")
+    invoke("projects", "client-project", "apollo11", "AP-11")
+
+    def apollo() -> dict[str, Any]:
+        spans: list[dict[str, Any]] = json.loads(invoke("log", "-j", "--range", "all").output)
+        return next(s for s in spans if s["project"] == "apollo11")
+
+    assert apollo()["client_project"] == "AP-11"
+    assert invoke("edit", "-2", "--client-project", "x-1").exit_code == 0
+    assert apollo()["client_project"] == "X-1"
+    assert apollo()["project"] == "apollo11"
+    invoke("projects", "client-project", "apollo11", "AP-12")
+    assert apollo()["client_project"] == "X-1"
+    assert invoke("edit", "-2", "--inherit-client-project").exit_code == 0
+    assert apollo()["client_project"] == "AP-12"
+
+
+def test_edit_client_project_flags_conflict(invoke) -> None:
+    _seed(invoke)
+    result = invoke("edit", "-1", "--client-project", "X-1", "--inherit-client-project")
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+
+
+def test_edit_unknown_client_project_fails_and_changes_nothing(invoke) -> None:
+    _seed(invoke)
+    _client_projects(invoke, "AP-11")
+    result = invoke("edit", "-2", "--client-project", "AP-1l")
+    assert result.exit_code == 1
+    assert "unknown client project: AP-1l" in result.output
+    assert "cosw client-projects add AP-1l" in result.output
+    spans = json.loads(invoke("log", "-j", "--range", "all").output)
+    assert all(s["client_project"] is None for s in spans)
+    assert json.loads(invoke("client-projects", "-j").output)[0]["name"] == "AP-11"
+    assert len(json.loads(invoke("client-projects", "-j").output)) == 1
+
+
+def test_edit_archived_client_project_is_rejected(invoke) -> None:
+    _seed(invoke)
+    _client_projects(invoke, "AP-11")
+    invoke("client-projects", "archive", "AP-11")
+    result = invoke("edit", "-2", "--client-project", "AP-11")
+    assert result.exit_code == 1
+    assert "archived" in result.output
+
+
+def test_add_with_client_project(invoke) -> None:
+    _client_projects(invoke, "X-1")
+    invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-10T08:00:00Z",
+        "--to",
+        "2026-09-10T09:00:00Z",
+        "--client-project",
+        "X-1",
+    )
+    (span,) = json.loads(invoke("log", "-j", "--range", "all").output)
+    assert span["client_project"] == "X-1"
+
+
+def test_add_with_unknown_client_project_records_nothing(invoke) -> None:
+    result = invoke(
+        "add",
+        "apollo11",
+        "--from",
+        "2026-09-10T08:00:00Z",
+        "--to",
+        "2026-09-10T09:00:00Z",
+        "--client-project",
+        "X-1",
+    )
+    assert result.exit_code == 1
+    assert json.loads(invoke("log", "-j", "--range", "all").output) == []
+
+
+def test_renaming_client_project_updates_log(invoke) -> None:
+    _seed(invoke)
+    _client_projects(invoke, "AP-1l")
+    invoke("projects", "client-project", "apollo11", "AP-1l")
+    invoke("client-projects", "rename", "AP-1l", "AP-11")
+    spans = json.loads(invoke("log", "-j", "--range", "all").output)
+    assert [s["client_project"] for s in spans if s["project"] == "apollo11"] == ["AP-11"]
+
+
 def test_log_shows_first_line_truncated(invoke) -> None:
     invoke(
         "add",

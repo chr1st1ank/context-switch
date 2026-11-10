@@ -44,6 +44,10 @@ _Avoid_: workspace, account
 An optional free-form label on a project naming the party the work is done for — stored as the project's `client` field. It is a per-project string, not a first-class entity, and projects without one are normal. Not to be confused with a client in the application sense.
 _Avoid_: customer, account
 
+**Client project**:
+A named record of an identifier the customer uses for the work (for example `AP-11`), referenced by ID from projects (`client_project_id`) and spans. Chosen from a list, never typed per span, so a misspelling cannot create a new group. A span's effective client project is its own if set, otherwise its project's current one. Remapping a span to another client project never changes its project. Renaming one updates everything that uses it. `cosw export --by-client-project` groups totals by it. Unlike the project client, it is a first-class entity.
+_Avoid_: external project, customer project, billing code
+
 **Tag**:
 A reusable label that can be attached to a span in addition to its project.
 _Avoid_: category, keyword

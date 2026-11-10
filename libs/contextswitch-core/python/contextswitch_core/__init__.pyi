@@ -1,6 +1,7 @@
 """Python bindings for the contextswitch-core Rust library."""
 
 from .contextswitch_core import (
+    ClientProject,
     DomainError,
     LocalFsProvider,
     Logbook,
@@ -15,6 +16,7 @@ from .contextswitch_core import (
 )
 
 __all__ = [
+    "ClientProject",
     "Logbook",
     "DomainError",
     "LocalFsProvider",

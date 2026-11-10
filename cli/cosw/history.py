@@ -22,6 +22,7 @@ from cosw.core import (
     project_name,
     read_logbook,
     require_tag,
+    resolve_client_project_id,
     resolve_project_id,
     resolve_span,
     resolve_tag_ids,
@@ -47,6 +48,13 @@ from cosw.timeparse import fmt_duration, fmt_local, fmt_time, parse_range_end, u
     help="Span end time; a bare date means the end of that day.",
 )
 @description_option("Describe what was done.")
+@click.option(
+    "--client-project",
+    "client_project",
+    metavar="NAME",
+    help="Override the project's client project for this span (must exist).",
+    shell_complete=completers.names("client_project"),
+)
 @click.pass_context
 def add(
     ctx: click.Context,
@@ -54,6 +62,7 @@ def add(
     from_str: str,
     to_str: str,
     span_description: str | None,
+    client_project: str | None,
 ) -> None:
     """Record a span that was not tracked live."""
     project_name, tag_names = parse_classification(args)
@@ -70,6 +79,10 @@ def add(
         tag_ids = resolve_tag_ids(logbook, tag_names, now, created)
         span_id = logbook.add_span(started, stopped, project_id, tag_ids, now)
         apply_description(logbook, span_id, span_description, now)
+        if client_project is not None:
+            logbook.set_span_client_project(
+                span_id, resolve_client_project_id(logbook, client_project), now
+            )
         span = logbook.span(span_id)
         assert span is not None
         return describe(logbook, span)
@@ -120,6 +133,18 @@ def _parse_edit_args(args: tuple[str, ...]) -> tuple[str | None, list[str]]:
     shell_complete=completers.names("tag"),
 )
 @description_option("Set the description; an empty value clears it.")
+@click.option(
+    "--client-project",
+    "client_project",
+    metavar="NAME",
+    help="Remap this span to a client project (must exist) without changing its project.",
+    shell_complete=completers.names("client_project"),
+)
+@click.option(
+    "--inherit-client-project",
+    is_flag=True,
+    help="Drop the span's override; use its project's client project.",
+)
 @click.pass_context
 def edit(
     ctx: click.Context,
@@ -130,8 +155,10 @@ def edit(
     unassign: bool,
     untags: tuple[str, ...],
     span_description: str | None,
+    client_project: str | None,
+    inherit_client_project: bool,
 ) -> None:
-    """Edit a span's times, project, tags, or description.
+    """Edit a span's times, project, tags, description, or client project.
 
     SPAN is a recency index (-1, -2, ...) or an ID prefix; it defaults to the
     active span, or the most recent span when idle.
@@ -139,9 +166,13 @@ def edit(
     ref, adds = _parse_edit_args(args)
     if project_name is not None and unassign:
         raise click.UsageError("--project and --unassign are mutually exclusive")
-    if not any([start_str, stop_str, project_name, unassign, adds, untags]) and (
-        span_description is None
-    ):
+    if client_project is not None and inherit_client_project:
+        raise click.UsageError(
+            "--client-project and --inherit-client-project are mutually exclusive"
+        )
+    if not any(
+        [start_str, stop_str, project_name, unassign, adds, untags, inherit_client_project]
+    ) and (span_description is None and client_project is None):
         raise click.UsageError("nothing to change")
     started = parse_dt(start_str) if start_str is not None else None
     stopped = parse_dt(stop_str) if stop_str is not None else None
@@ -177,6 +208,12 @@ def edit(
             tag_ids=tag_ids,
         )
         apply_description(logbook, span.id, span_description, now)
+        if inherit_client_project:
+            logbook.set_span_client_project(span.id, None, now)
+        if client_project is not None:
+            logbook.set_span_client_project(
+                span.id, resolve_client_project_id(logbook, client_project), now
+            )
         updated = logbook.span(span.id)
         assert updated is not None
         return describe(logbook, updated)

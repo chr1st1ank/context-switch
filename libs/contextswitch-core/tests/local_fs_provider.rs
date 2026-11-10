@@ -129,7 +129,7 @@ fn commit_writes_pretty_human_readable_json() {
     provider.commit(logbook, &snapshot.version).unwrap();
 
     let json = fs::read_to_string(&path).unwrap();
-    assert!(json.contains("\"schema_version\": 2"));
+    assert!(json.contains("\"schema_version\": 3"));
     assert!(json.contains("\"revision\": 1"));
     assert!(json.contains("\"name\": \"work\""));
     // The lockfile and temp file must be cleaned up.
@@ -138,7 +138,7 @@ fn commit_writes_pretty_human_readable_json() {
 }
 
 #[test]
-fn v1_file_is_migrated_on_read_and_rewritten_as_v2() {
+fn v1_file_is_migrated_on_read_and_rewritten_as_v3() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("data.json");
     fs::write(
@@ -149,7 +149,7 @@ fn v1_file_is_migrated_on_read_and_rewritten_as_v2() {
     .unwrap();
     let provider = LocalFsProvider::new(&path).unwrap();
     let snapshot = provider.read().unwrap();
-    assert_eq!(snapshot.logbook.schema_version, 2);
+    assert_eq!(snapshot.logbook.schema_version, 3);
     assert_eq!(snapshot.version, "3");
 
     let mut logbook = snapshot.logbook.clone();
@@ -157,7 +157,7 @@ fn v1_file_is_migrated_on_read_and_rewritten_as_v2() {
     provider.commit(logbook, &snapshot.version).unwrap();
     assert!(fs::read_to_string(&path)
         .unwrap()
-        .contains("\"schema_version\": 2"));
+        .contains("\"schema_version\": 3"));
 }
 
 #[test]

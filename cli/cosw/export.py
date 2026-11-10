@@ -94,6 +94,13 @@ def _resolve_format(fmt: str | None, output: Path | None) -> str:
     help="Draw the signature lines with this image embedded at the signature.",
 )
 @click.option(
+    "--by-client-project",
+    "by_client_project",
+    is_flag=True,
+    help="Group totals by client project instead of project; "
+    "defaults the project column to client project.",
+)
+@click.option(
     "-o",
     "--output",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -119,10 +126,14 @@ def export(
     fmt: str | None,
     signature_lines: bool,
     signature_image: Path | None,
+    by_client_project: bool,
     output: Path | None,
 ) -> None:
     """Export a standalone timesheet (markdown to stdout, PDF via -o)."""
-    columns = _parse_columns(columns_str)
+    if columns_str is None and by_client_project:
+        columns = tuple("client_project" if c == "project" else c for c in DEFAULT_COLUMNS)
+    else:
+        columns = _parse_columns(columns_str)
     fmt = _resolve_format(fmt, output)
     if fmt == "pdf" and output is None:
         raise click.UsageError("PDF output requires -o FILE")
@@ -160,6 +171,7 @@ def export(
         now=now,
         signature_lines=signature_lines or signature_image is not None,
         signature_image=signature_image,
+        by_client_project=by_client_project,
     )
     if fmt == "pdf":
         assert output is not None

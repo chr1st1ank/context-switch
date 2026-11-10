@@ -1,7 +1,8 @@
 //! contextswitch-core — shared domain model and storage provider interface.
 //!
 //! - [`domain`]: [`Span`](domain::Span), [`Project`](domain::Project),
-//!   [`Tag`](domain::Tag), and the canonical [`Logbook`](domain::Logbook)
+//!   [`Tag`](domain::Tag), [`ClientProject`](domain::ClientProject), and the
+//!   canonical [`Logbook`](domain::Logbook)
 //!   with invariant-checked mutations.
 //! - [`storage`]: the [`StorageProvider`](storage::StorageProvider) contract
 //!   and [`LocalFsProvider`](storage::LocalFsProvider).
@@ -81,6 +82,7 @@ pub mod exceptions {
 fn contextswitch_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<domain::Project>()?;
     m.add_class::<domain::Tag>()?;
+    m.add_class::<domain::ClientProject>()?;
     m.add_class::<domain::Span>()?;
     m.add_class::<domain::Logbook>()?;
     m.add_class::<storage::StorageSnapshot>()?;

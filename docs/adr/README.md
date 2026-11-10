@@ -15,5 +15,6 @@ This directory contains decisions that constrain the architecture and should be 
 - [ADR-0011: Standardize on age for client-side envelope encryption](./0011-standardize-on-age-for-envelope-encryption.md)
 - [ADR-0012: Sync engine over a storage provider, with a buffered write queue](./0012-sync-engine-write-buffer.md)
 - [ADR-0013: Span description and logbook schema v2](./0013-span-description-and-schema-v2.md)
+- [ADR-0014: Client project and logbook schema v3](./0014-client-project-and-schema-v3.md)
 
 These records are proposed until implementation validates the provider protocol and native schema.

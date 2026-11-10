@@ -27,6 +27,7 @@ internal fun EditSpanDialog(
         projectId: String?,
         tagIds: List<String>,
         description: String,
+        clientProjectId: String?,
     ) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
@@ -42,7 +43,13 @@ internal fun EditSpanDialog(
     var projectId by remember { mutableStateOf(span?.projectId) }
     var tagIds by remember { mutableStateOf(span?.tagIds?.toSet() ?: emptySet()) }
     var description by remember { mutableStateOf(span?.description ?: "") }
+    var clientProjectId by remember { mutableStateOf(span?.clientProjectId) }
     val projects = snap?.projects?.filter { !it.archived }.orEmpty()
+    val inheritedId = snap?.projects?.firstOrNull { it.id == projectId }?.clientProjectId
+    val inheritedName = snap?.clientProjects?.firstOrNull { it.id == inheritedId }?.name
+    val clientProjects = snap?.let {
+        orderClientProjects(it.spans, it.projects, it.clientProjects, keep = clientProjectId)
+    }.orEmpty()
     val tags = snap?.tags?.filter { !it.archived }.orEmpty()
     val stopError = if (stop != null && !isStopAfterStart(start, stop!!)) {
         "Must be after start"
@@ -98,6 +105,15 @@ internal fun EditSpanDialog(
                     supportingText = { Text("${description.length}/$MAX_DESCRIPTION_CHARS") },
                     maxLines = 4,
                 )
+                if (clientProjects.isNotEmpty() || inheritedName != null) {
+                    Text("Client project", style = MaterialTheme.typography.labelMedium)
+                    ClientProjectChips(
+                        selectedId = clientProjectId,
+                        options = clientProjects,
+                        noneLabel = inheritedName?.let { "Inherit ($it)" } ?: "Inherit",
+                        onSelect = { clientProjectId = it },
+                    )
+                }
             }
         },
         confirmButton = {
@@ -110,6 +126,7 @@ internal fun EditSpanDialog(
                         projectId,
                         tagIds.toList(),
                         description,
+                        clientProjectId,
                     )
                 },
             ) { Text("Save") }
